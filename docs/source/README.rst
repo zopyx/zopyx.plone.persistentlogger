@@ -32,6 +32,11 @@ Both URLs require the permission of modify the related object.
 All logs can be searched, sorted and filtered individually based on the Datatables.net
 implementation.
 
+Repository
+----------
+
+- https://github.com/zopyx/zopyx.plone.persistentlogger
+
 Author
 ------
 | Andreas Jung/ZOPYX
