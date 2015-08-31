@@ -6,14 +6,16 @@
 ################################################################
 
 
+import math
+import datetime 
+
 from .base import TestBase
+from zopyx.plone.persistentlogger.logger import IPersistentLogger
 
 
 class BasicTests(TestBase):
 
-    def testLogger(self):
-
-        from zopyx.plone.persistentlogger.logger import IPersistentLogger
+    def test_logging(self):
         c = self.portal
         logger = IPersistentLogger(c)
         self.assertEqual(len(logger), 0)
@@ -22,6 +24,19 @@ class BasicTests(TestBase):
         self.assertEqual(len(logger), 2)
         logger.clear()
         self.assertEqual(len(logger), 0)
+        self.assertEqual(logger.get_last_user(), 'test-user')
+
+    def test_entries(self):
+        c = self.portal
+        logger = IPersistentLogger(c)
+        logger.log(u'error', 'error')
+        logger.log(u'info', 'info')
+        self.assertEqual(len(logger), 2)
+        entries = logger.entries
+        self.assertEqual(len(entries), 2)
+        for entry in entries:
+            self.assertEqual(entry, logger.entry_by_uuid(entry['uuid']))
+
 
 
 def test_suite():
