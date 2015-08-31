@@ -1,9 +1,12 @@
 zopyx.plone.persistentlogger
 ============================
 
-
 ``zopyx.plone.persistentlogger`` supports persistent logging where
 the log data is stored on an arbitrary persistent Plone object.
+Typical usecases are application specific logging e.g. for logging 
+a history per content object directly in Plone rather then having
+a huge common log on the filesystem. The log entries are stored
+using object annotations.
 
 Usage::
 
@@ -26,6 +29,9 @@ The logs can be view through-the-web through the URL http://host/path/to/object/
 The logs can be clear using the URL http://host/path/to/object/@@persistent-log-clear.
 Both URLs require the permission of modify the related object.
 
+All logs can be searched, sorted and filtered individually based on the Datatables.net
+implementation.
+
 Author
 ------
 | Andreas Jung/ZOPYX
@@ -33,6 +39,3 @@ Author
 | D-72074 Tuebingen, Germany
 | info@zopyx.com
 | www.zopyx.com
-
-
-
