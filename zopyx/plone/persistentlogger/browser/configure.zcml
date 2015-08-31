@@ -16,14 +16,6 @@
 
     <browser:page
         for="*"
-        name="persistent-demo"
-        class=".logger.Logging"
-        attribute="demo"
-        permission="cmf.ModifyPortalContent"
-    />
-
-    <browser:page
-        for="*"
         name="persistent-log-clear"
         class=".logger.Logging"
         attribute="log_clear"
