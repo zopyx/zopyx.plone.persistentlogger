@@ -24,7 +24,7 @@ setup(name='zopyx.plone.persistentlogger',
       url='http://pypi.python.org/pypi/zopyx.plone.persistentlogger',
       license='GPL',
       packages=find_packages(exclude=['ez_setup']),
-      namespace_packages=['xmldirector'],
+      namespace_packages=['zopyx', 'zopyx.plone'],
       include_package_data=True,
       zip_safe=False,
       install_requires=[
