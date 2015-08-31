@@ -1,0 +1,14 @@
+/* Datatables */
+
+/* Hide datatables by default and show then upon completion (JS) */
+.datatable {
+    display: none;
+}
+
+.datatable tbody tr:nth-child(even) {
+    background: #ddd;
+}
+
+.datatable tbody tr:nth-child(odd) {
+    background: #eee;
+}

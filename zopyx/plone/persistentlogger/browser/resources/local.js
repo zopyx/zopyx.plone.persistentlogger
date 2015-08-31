@@ -1,15 +1,3 @@
-
-if(require === undefined){
-  require = function(reqs, torun){
-    'use strict';
-    return torun(window.ace);
-  };
-}
-
-
-require([
-  ], function(ace){
-
 $(document).ready(function() {
 
     var plone5 = $('[data-bundle="plone-legacy"]').length > 0;
@@ -83,6 +71,4 @@ $(document).ready(function() {
             } );
         } );
     }
-});
-
 });

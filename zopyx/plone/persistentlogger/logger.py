@@ -17,13 +17,6 @@ from persistent.list import PersistentList
 from zope.annotation.interfaces import IAnnotations
 from BTrees.OOBTree import OOBTree
 
-LOG = logging.getLogger('xmldirector.plonecore')
-
-requests_log = logging.getLogger("requests")
-requests_log.setLevel(logging.WARNING)
-urllib3_log = logging.getLogger("urllib3")
-urllib3_log.setLevel(logging.WARNING)
-
 
 LOG_KEY = 'xmldirector.plonecore.connector.log'
 LOG_LAST_USER = 'xmldirector.plonecore.connector.lastuser'

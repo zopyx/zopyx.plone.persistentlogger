@@ -26,5 +26,12 @@ class Logging(BrowserView):
         return self.request.response.redirect(
             '{}/connector-log'.format(self.context.absolute_url()))
 
+    def demo(self):
+
+        log = IPersistentLogger(self.context)
+        for i in range(10):
+            log.log(u'This is a text {}'.format(i), 'info', details=range(1, 10))
+        return  'done'
+
     def __call__(self):
         return self.template()

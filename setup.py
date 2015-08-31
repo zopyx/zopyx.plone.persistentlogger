@@ -29,6 +29,7 @@ setup(name='zopyx.plone.persistentlogger',
       zip_safe=False,
       install_requires=[
           'setuptools',
+          'plone.api',
           # -*- Extra requirements: -*-
       ],
       tests_require=['zope.testing'],
