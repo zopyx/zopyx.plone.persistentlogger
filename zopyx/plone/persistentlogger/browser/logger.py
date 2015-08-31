@@ -24,7 +24,7 @@ class Logging(BrowserView):
         msg = u'Log entries cleared'
         self.context.plone_utils.addPortalMessage(msg)
         return self.request.response.redirect(
-            '{}/connector-log'.format(self.context.absolute_url()))
+            '{}/persistent-log'.format(self.context.absolute_url()))
 
     def __call__(self):
         return self.template()
