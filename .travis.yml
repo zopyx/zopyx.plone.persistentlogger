@@ -31,7 +31,7 @@ script:
 notifications:
   irc:
     channels:
-    - irc.freenode.org#plone
+    - irc.freenode.org#zopyx
     template:
     - '%{repository}/#%{build_number}/%{branch} (%{author}): %{message} %{build_url}'
 
