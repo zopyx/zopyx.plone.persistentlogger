@@ -37,6 +37,9 @@ Repository
 
 - https://github.com/zopyx/zopyx.plone.persistentlogger
 
+.. image:: https://travis-ci.org/zopyx/zopyx.plone.persistentlogger.svg?branch=master
+
+
 Author
 ------
 | Andreas Jung/ZOPYX
