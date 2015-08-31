@@ -12,3 +12,7 @@
 .datatable tbody tr:nth-child(odd) {
     background: #eee;
 }
+
+a.action:hover {
+    text-decoration: underline;
+}

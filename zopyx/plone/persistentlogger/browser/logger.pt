@@ -48,10 +48,7 @@
                       <td class="log-text">
                           <span tal:content="structure row/comment" />
                           <tal:if condition="row/details | nothing"> 
-                              (<a class="action"
-                                  i18n:translate="">
-                                  Details
-                              </a>)
+                              (<a class="action" i18n:translate="">Details</a>)
                               <pre class="details" 
                                   style="display: none"
                                   tal:content="row/details" />
