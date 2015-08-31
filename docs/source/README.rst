@@ -9,7 +9,6 @@ Usage::
 
     from zopyx.plone.persistentlogger import IPersistentLogger
 
-
     def do_something(...):
 
         # ``context`` represents the current context object
