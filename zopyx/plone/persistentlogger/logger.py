@@ -18,18 +18,16 @@ from zope.annotation.interfaces import IAnnotations
 from BTrees.OOBTree import OOBTree
 
 
-LOG_KEY = 'xmldirector.plonecore.connector.log'
-LOG_LAST_USER = 'xmldirector.plonecore.connector.lastuser'
-LOG_LAST_DATE = 'xmldirector.plonecore.connector.lastdate'
+LOG_KEY =       'zopyx.plone.persistentlogger.connector.log'
+LOG_LAST_USER = 'zopyx.plone.persistentlogger.connector.lastuser'
+LOG_LAST_DATE = 'zopyx.plone.persistentlogger.connector.lastdate'
 
 
 class IPersistentLogger(zope.interface.Interface):
-
     """ Marker interface for a object persistent logger """
 
 
 class PersistentLoggerAdapter(object):
-
     """ An adapter for storing logging information as an annotation
         on a persistent object.
     """
