@@ -19,7 +19,7 @@ class Logging(BrowserView):
         return IPersistentLogger(self.context).entries
 
     def log_clear(self):
-        """ Clear connector persistent log """
+        """ Clear persistent log """
         IPersistentLogger(self.context).clear()
         msg = u'Log entries cleared'
         self.context.plone_utils.addPortalMessage(msg)

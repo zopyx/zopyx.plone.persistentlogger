@@ -22,11 +22,11 @@
     <metal:content-core define-macro="content-core"
         tal:define="toLocalizedTime nocall:context/@@plone/toLocalizedTime">
 
-      <h2 i18n:translate="">Connector logfile</h2>
+      <h2 i18n:translate="">Persistent Logger</h2>
       <tal:def define="rows view/entries"> 
 
           <div class="warning" i18n:translate="" tal:condition="not: rows">
-              The connector log is empty
+              The log is empty
           </div>
 
           <table class="datatable" tal:condition="rows">
