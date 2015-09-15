@@ -10,7 +10,7 @@ using object annotations.
 
 Usage::
 
-    from zopyx.plone.persistentlogger import IPersistentLogger
+    from zopyx.plone.persistentlogger.logger import IPersistentLogger
 
     def do_something(...):
 
