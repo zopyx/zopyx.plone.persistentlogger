@@ -1,6 +1,10 @@
 Changelog
 =========
 
+0.2.1 (2015-09-17)
+------------------
+- changed action permission for viewing the persistent log
+
 0.2.0 (2015-09-10)
 ------------------
 

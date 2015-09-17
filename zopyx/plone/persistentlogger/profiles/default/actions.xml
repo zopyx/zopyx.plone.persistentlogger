@@ -4,14 +4,14 @@
  <object name="object" meta_type="CMF Action Category">
   <property name="title"></property>
   <object name="persistent_log" meta_type="CMF Action" i18n:domain="plone">
-   <property name="title" i18n:translate="">Persistent log</property>
+   <property name="title" i18n:translate="">Logging</property>
    <property name="description" i18n:translate=""></property>
    <property name="url_expr">string:${object_url}/@@persistent-log</property>
    <property name="link_target"></property>
    <property name="icon_expr"></property>
    <property name="available_expr"></property>
    <property name="permissions">
-    <element value="View"/>
+    <element value="Modify portal content"/>
    </property>
    <property name="visible">True</property>
   </object>

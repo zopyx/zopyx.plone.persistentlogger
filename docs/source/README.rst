@@ -1,12 +1,11 @@
 zopyx.plone.persistentlogger
 ============================
 
-``zopyx.plone.persistentlogger`` supports persistent logging where
-the log data is stored on an arbitrary persistent Plone object.
-Typical usecases are application specific logging e.g. for logging 
-a history per content object directly in Plone rather then having
-a huge common log on the filesystem. The log entries are stored
-using object annotations.
+``zopyx.plone.persistentlogger`` supports persistent logging where the log data
+is stored on an arbitrary persistent Plone object (as annotation).  Typical
+usecases are application specific logging e.g. for logging a history per
+content object directly in Plone rather then having a huge common log on the
+filesystem. The log entries are stored using object annotations.
 
 Usage::
 
@@ -24,6 +23,10 @@ Usage::
 ``details`` can be either a string or a Python datastructure like a dict, a
 list or a tuple. The logger will convert non-string data using the ``pprint``
 module of Python into a nicely readable string.
+``level`` can be an arbitrary string for indicating the severity of the logging
+message.  The module does not perform any checking on the given message
+``level``. Sorting on ``level`` is accomplished only on the lexicographical
+ordering of the ``level`` values.
 
 The logs can be view through-the-web through the URL http://host/path/to/object/@@persistent-log .
 The logs can be clear using the URL http://host/path/to/object/@@persistent-log-clear.
@@ -32,12 +35,13 @@ Both URLs require the permission of modify the related object.
 All logs can be searched, sorted and filtered individually based on the Datatables.net
 implementation.
 
-Repository
-----------
+Repository & issue tracker
+--------------------------
 
 - https://github.com/zopyx/zopyx.plone.persistentlogger
 
 .. image:: https://travis-ci.org/zopyx/zopyx.plone.persistentlogger.svg?branch=master
+
 
 
 Author
