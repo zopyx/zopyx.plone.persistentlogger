@@ -1,6 +1,11 @@
 Changelog
 =========
 
+0.2.3 (2015-09-23)
+------------------
+
+- some unittest cleanup
+
 0.2.2 (2015-09-23)
 ------------------
 - log entries now store the original ``details`` value directly 
