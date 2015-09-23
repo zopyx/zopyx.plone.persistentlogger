@@ -69,13 +69,16 @@ class PersistentLoggerAdapter(object):
     def log(self, comment, level='info', details=None):
         """ Add a log entry """
         annotations = self.annotations
+        details_raw = None
         if details:
             if not isinstance(details, basestring):
+                details_raw = details
                 details = pprint.pformat(details)
         d = dict(date=datetime.datetime.utcnow(),
                  username=plone.api.user.get_current().getUserName(),
                  level=level,
                  details=details,
+                 details_raw=details_raw,
                  uuid=str(uuid.uuid1()),
                  comment=comment)
         annotations[d['date']] = d
