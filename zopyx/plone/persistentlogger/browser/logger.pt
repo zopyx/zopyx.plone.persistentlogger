@@ -22,7 +22,7 @@
     <metal:content-core define-macro="content-core"
         tal:define="toLocalizedTime nocall:context/@@plone/toLocalizedTime">
 
-      <h2 i18n:translate="">Persistent Logger</h2>
+      <h2 i18n:translate="">Logging</h2>
       <tal:def define="rows view/entries"> 
 
           <div class="warning" i18n:translate="" tal:condition="not: rows">
