@@ -16,6 +16,7 @@ class Logging(BrowserView):
     template = ViewPageTemplateFile('logger.pt')
 
     def entries(self):
+        IPersistentLogger(self.context).log('hello world')
         return IPersistentLogger(self.context).entries
 
     def log_clear(self):
