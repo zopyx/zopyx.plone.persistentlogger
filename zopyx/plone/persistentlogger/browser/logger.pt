@@ -28,10 +28,6 @@
           i18n:translate="">Clear log entries</a>
 
       <script type="text/javascript" tal:content="string: URL = '${context/absolute_url}'"></script>
-      <script type="text/javascript" 
-          tal:define="is_plone5 view/is_plone5;
-                      is_plone5 python: str(is_plone5).lower()"
-          tal:content="string: IS_PLONE5 = ${is_plone5}"></script>
 
       <script type="text/javascript">
 
@@ -90,7 +86,7 @@
                 height: "600px",
                 autoload: true,
                 sorting: true,
-                paging: IS_PLONE5,
+                paging: true,
                 filtering: true,
                 pageSize: 16,
                 pageButtonCount: 5,

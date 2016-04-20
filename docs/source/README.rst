@@ -41,6 +41,13 @@ Compatibility
 - Plone 4.3
 - Plone 5.0
 
+Installation
+------------
+
+Installation on Plone 4.3.X requires the following version pinning::
+ 
+  plone.app.jquery = 1.8.3
+
 Repository & issue tracker
 --------------------------
 

@@ -7,7 +7,6 @@
 
 import json
 import datetime
-import pkg_resources
 
 from zope.interface import alsoProvides
 
@@ -30,9 +29,6 @@ def json_serial(obj):
 class Logging(BrowserView):
 
     template = ViewPageTemplateFile('logger.pt')
-
-    def is_plone5(self):
-        return pkg_resources.get_distribution('Products.CMFPlone').version.startswith('5')
 
     def demo(self):
         """ Create demo logger entries """
