@@ -31,14 +31,6 @@ class Logging(BrowserView):
 
     template = ViewPageTemplateFile('logger.pt')
 
-    def demo(self):
-        import random 
-        logger = IPersistentLogger(self.context)
-        for i in range(100):
-            details = dict(foo=u'bar {}'.format(i))
-            logger.log(u'test üöä {}'.format(100), random.choice(['info', 'warn', 'error', 'debug']), details=details)
-        return 'done'
-
     def is_plone5(self):
         return pkg_resources.get_distribution('Products.CMFPlone').version.startswith('5')
 
