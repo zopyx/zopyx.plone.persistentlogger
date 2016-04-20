@@ -36,7 +36,7 @@
             DATA = null;
 
             function load_data(filter) {
-                console.log(filter);
+                
                 if (DATA == null) {
                     var url = URL + "/@@logger-entries";
                     $.ajax({
