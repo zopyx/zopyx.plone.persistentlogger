@@ -35,6 +35,12 @@ Both URLs require the permission of modify the related object.
 All logs can be searched, sorted and filtered individually based on the Datatables.net
 implementation.
 
+Compatibility
+-------------
+
+- Plone 4.3
+- Plone 5.0
+
 Repository & issue tracker
 --------------------------
 
