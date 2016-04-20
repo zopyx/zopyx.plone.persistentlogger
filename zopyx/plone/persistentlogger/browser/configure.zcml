@@ -16,14 +16,6 @@
 
     <browser:page
         for="*"
-        name="logger-demo"
-        class=".logger.Logging"
-        attribute="demo"
-        permission="cmf.ManagePortal"
-    />
-
-    <browser:page
-        for="*"
         name="logger-entries"
         class=".logger.Logging"
         attribute="entries_json"
