@@ -1,6 +1,11 @@
 Changelog
 =========
 
+0.3.3 (2016-04-20)
+------------------
+- enabled paging option for Plone 4.3
+  (requires plone.app.jquery==1.8.3)
+
 0.3.2 (2016-04-20)
 ------------------
 - added browser layers
