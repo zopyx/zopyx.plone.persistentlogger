@@ -21,90 +21,89 @@
         tal:define="toLocalizedTime nocall:context/@@plone/toLocalizedTime">
 
       <h2 i18n:translate="">Logging</h2>
-      <tal:def define="rows view/entries"> 
 
-          <div class="warning" i18n:translate="" tal:condition="not: rows">
-              The log is empty
-          </div>
+      <div class="datatable"></div>
 
-          <table class="datatable"/>
+      <script type="text/javascript" tal:content="string: URL = '${context/absolute_url}'"></script>
+      <script type="text/javascript" 
+          tal:define="is_plone5 view/is_plone5;
+                      is_plone5 python: str(is_plone5).lower()"
+          tal:content="string: IS_PLONE5 = ${is_plone5}"></script>
 
-          <script type="text/javascript" tal:content="string: URL = '${context/absolute_url}'"></script>
+      <script type="text/javascript">
 
-          <script type="text/javascript">
+        DATA = null;
 
-            DATA = null;
+        function load_data(filter) {
+            
+            if (DATA == null) {
+                var url = URL + "/@@logger-entries";
+                $.ajax({
+                    url: url,
+                    dataType: 'json',
+                    async: false,
+                    method: 'GET',
+                    success: function(result) {
+                        DATA = result;
+                    } 
+                });
+            }
 
-            function load_data(filter) {
-                
-                if (DATA == null) {
-                    var url = URL + "/@@logger-entries";
-                    $.ajax({
-                        url: url,
-                        dataType: 'json',
-                        async: false,
-                        method: 'GET',
-                        success: function(result) {
-                            DATA = result;
-                        } 
-                    });
-                }
-
-                var result = $.grep(DATA, function(item, idx) {
-                    for (var key in filter) {
-                        var value = filter[key];
-                        if (value.length > 0) {
-                            if (item[key].indexOf(value) == -1)
-                                return false;
-                        }
+            var result = $.grep(DATA, function(item, idx) {
+                for (var key in filter) {
+                    var value = filter[key];
+                    if (value.length > 0) {
+                        if (item[key].indexOf(value) == -1)
+                            return false;
                     }
-                    return true;
-                });
-                return result;
-            }
-
-            function date_renderer(value, row) {
-                return row['date_str'];
-            }
-
-            function comment_renderer(value, row) {
-                var s = value;
-                if (row['details']) {
-                    var details = row['details'];
-                    s += ' <span class="details"><a class="show-details">[Details]</a><pre class="details-data" style="display: none">' + details + '</pre></span>';                
                 }
-                return s;
-            }
-
-
-            $(document).ready(function() {
-
-                $('body').on('click', '.show-details', function() {
-                    $(this).siblings('.details-data').toggle('fast');
-                });
-
-                $('.datatable').jsGrid({
-                    width: "100%",
-                    height: "600px",
-                    autoload: true,
-                    sorting: true,
-                    paging: true,
-                    filtering: true,
-                    controller: {
-                        loadData: load_data
-                    },
-
-                    fields: [
-                        { name: "date", title: "Date", type: "text", width: 75, itemTemplate: date_renderer, autosearch: true},
-                        { name: "level", title: "Level", type: "text", width: 50, css: 'field-type'},
-                        { name: "username", title: "Username", type: "text", width: 50, css: 'field-size', filtering: true},
-                        { name: "comment", title: "comment", type: "text", css: 'field-modified', filtering: true, itemTemplate: comment_renderer},
-                    ]
-                    });
+                return true;
             });
-          </script>
+            return result;
+        }
 
-      </tal:def>
+        function date_renderer(value, row) {
+            return row['date_str'];
+        }
+
+        function comment_renderer(value, row) {
+            var s = value;
+            if (row['details']) {
+                var details = row['details'];
+                s += ' <span class="details"><a class="show-details">[Details]</a><pre class="details-data" style="display: none">' + details + '</pre></span>';                
+            }
+            return s;
+        }
+
+
+        $(document).ready(function() {
+
+            $('body').on('click', '.show-details', function() {
+                $(this).siblings('.details-data').toggle('fast');
+            });
+
+            $('.datatable').jsGrid({
+                width: "90%",
+                height: "600px",
+                autoload: true,
+                sorting: true,
+                paging: IS_PLONE5,
+                filtering: true,
+                pageSize: 16,
+                pageButtonCount: 5,
+                controller: {
+                    loadData: load_data
+                },
+                fields: [
+                    { name: "date", title: "Date", type: "text", width: 75, itemTemplate: date_renderer, autosearch: true},
+                    { name: "level", title: "Level", type: "text", width: 50, css: 'field-type'},
+                    { name: "username", title: "Username", type: "text", width: 50, css: 'field-size', filtering: true},
+                    { name: "comment", title: "Comment", type: "text", css: 'field-modified', filtering: true, itemTemplate: comment_renderer},
+                ]
+                });
+        });
+      </script>
+
   </metal:content-core>
 </metal:main>
 

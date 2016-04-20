@@ -7,6 +7,7 @@
 
 import json
 import datetime
+import pkg_resources
 
 from zope.interface import alsoProvides
 
@@ -37,6 +38,9 @@ class Logging(BrowserView):
             details = dict(foo=u'bar {}'.format(i))
             logger.log(u'test üöä {}'.format(100), random.choice(['info', 'warn', 'error', 'debug']), details=details)
         return 'done'
+
+    def is_plone5(self):
+        return pkg_resources.get_distribution('Products.CMFPlone').version.startswith('5')
 
     def entries(self):
         alsoProvides(self.request, IDisableCSRFProtection)

@@ -1,6 +1,12 @@
 Changelog
 =========
 
+0.3.0 (2016-04-20)
+------------------
+- full Plone 5 compatibility
+- switched from DataTables.net to jsGrid
+
+
 0.2.6 (2016-03-18)
 ------------------
 - i18n_domain missing in configure.zcml
