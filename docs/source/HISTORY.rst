@@ -1,6 +1,16 @@
 Changelog
 =========
 
+0.3.2 (2016-04-20)
+------------------
+- added browser layers
+- added 'demo' profile for @@logger-demo view for creating
+  some demo logger entries
+
+0.3.1 (2016-04-20)
+------------------
+- fixes
+
 0.3.0 (2016-04-20)
 ------------------
 - full Plone 5 compatibility

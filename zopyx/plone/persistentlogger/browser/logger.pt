@@ -98,9 +98,9 @@
                     loadData: load_data
                 },
                 fields: [
-                    { name: "date", title: "Date", type: "text", width: 75, itemTemplate: date_renderer, autosearch: true},
-                    { name: "level", title: "Level", type: "text", width: 50, css: 'field-type'},
-                    { name: "username", title: "Username", type: "text", width: 50, css: 'field-size', filtering: true},
+                    { name: "date", title: "Date", type: "text", width: 30, itemTemplate: date_renderer, autosearch: true},
+                    { name: "level", title: "Level", type: "text", width: 20, css: 'field-type'},
+                    { name: "username", title: "Username", type: "text", width: 20, css: 'field-size', filtering: true},
                     { name: "comment", title: "Comment", type: "text", css: 'field-modified', filtering: true, itemTemplate: comment_renderer},
                 ]
                 });
