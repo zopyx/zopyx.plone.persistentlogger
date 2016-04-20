@@ -5,6 +5,8 @@
 # (C) 2015,  Andreas Jung, www.zopyx.com, Tuebingen, Germany
 ################################################################
 
+import json
+import datetime
 
 from zope.interface import alsoProvides
 
@@ -15,13 +17,38 @@ from plone.protect.interfaces import IDisableCSRFProtection
 from zopyx.plone.persistentlogger.logger import IPersistentLogger
 
 
+def json_serial(obj):
+    """JSON serializer for objects not serializable by default json code"""
+
+    if isinstance(obj, datetime.datetime):
+        serial = obj.isoformat()
+        return serial
+    raise TypeError ("Type not serializable")
+
+
 class Logging(BrowserView):
 
     template = ViewPageTemplateFile('logger.pt')
 
+    def demo(self):
+        import random 
+        logger = IPersistentLogger(self.context)
+        for i in range(100):
+            details = dict(foo=u'bar {}'.format(i))
+            logger.log(u'test üöä {}'.format(100), random.choice(['info', 'warn', 'error', 'debug']), details=details)
+        return 'done'
+
     def entries(self):
         alsoProvides(self.request, IDisableCSRFProtection)
         return IPersistentLogger(self.context).entries
+
+    def entries_json(self, date_fmt='%d.%m.%Y %H:%M:%S'):
+        result = list()
+        for d in self.entries():
+            d = d.copy()
+            d['date_str'] = d['date'].strftime(date_fmt)
+            result.append(d)
+        return json.dumps(result, default=json_serial)
 
     def log_clear(self):
         """ Clear persistent log """

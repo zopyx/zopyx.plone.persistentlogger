@@ -16,6 +16,22 @@
 
     <browser:page
         for="*"
+        name="logger-demo"
+        class=".logger.Logging"
+        attribute="demo"
+        permission="cmf.ManagePortal"
+    />
+
+    <browser:page
+        for="*"
+        name="logger-entries"
+        class=".logger.Logging"
+        attribute="entries_json"
+        permission="cmf.ModifyPortalContent"
+    />
+
+    <browser:page
+        for="*"
         name="persistent-log-clear"
         class=".logger.Logging"
         attribute="log_clear"

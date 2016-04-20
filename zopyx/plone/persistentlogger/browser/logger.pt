@@ -8,14 +8,12 @@
 <body>
 
     <metal:slot fill-slot="style_slot">
-        <link rel="stylesheet" type="text/css" tal:attributes="href string:$portal_url/++resource++zopyx.plone.persistentlogger/DataTables/media/css/jquery.dataTables.css" />
-        <link rel="stylesheet" type="text/css" tal:attributes="href string:$portal_url/++resource++zopyx.plone.persistentlogger/DataTables/extensions/FixedHeader/css/dataTables.fixedHeader.min.css" />
+        <link rel="stylesheet" type="text/css" tal:attributes="href string:$portal_url/++resource++zopyx.plone.persistentlogger/jsgrid/jsgrid.min.css" />
+        <link rel="stylesheet" type="text/css" tal:attributes="href string:$portal_url/++resource++zopyx.plone.persistentlogger/jsgrid/jsgrid-theme.min.css" />
     </metal:slot>
 
     <metal:slot fill-slot="javascript_head_slot">
-        <script type="text/javascript" charset="utf8" tal:attributes="src string:$portal_url/++resource++zopyx.plone.persistentlogger/DataTables/media/js/jquery.dataTables.js"></script>
-        <script type="text/javascript" charset="utf8" tal:attributes="src string:$portal_url/++resource++zopyx.plone.persistentlogger/DataTables/extensions/FixedHeader/js/dataTables.fixedHeader.min.js"></script>
-        <script type="text/javascript" charset="utf8" tal:attributes="src string:$portal_url/++resource++zopyx.plone.persistentlogger/DataTables/extensions/TableTools/js/dataTables.tableTools.min.js"></script>
+        <script type="text/javascript" charset="utf8" tal:attributes="src string:$portal_url/++resource++zopyx.plone.persistentlogger/jsgrid/jsgrid.js"></script>
     </metal:slot>
 
 <metal:main fill-slot="content-core">
@@ -29,52 +27,81 @@
               The log is empty
           </div>
 
-          <table class="datatable" tal:condition="rows">
-              <thead>
-                  <tr>
-                      <th width="15%" i18n:translate="">Date</th>
-                      <th width="10%" i18n:translate="">Level</th>
-                      <th width="10%" i18n:translate="">Username</th>
-                      <th i18n:translate="">Comment</th>
-                  </tr>
-              </thead>
-              <tbody>
-                  <tr tal:repeat="row python: reversed(rows)">
-                      <td width="15%"
-                          tal:attributes="data-order python: row['date'].isoformat()"
-                          tal:content="python: toLocalizedTime(row['date'], True)" />
-                      <td width="10%" tal:attributes="class string:level-${row/level}" tal:content="row/level" />
-                      <td width="10%" tal:content="row/username" />
-                      <td class="log-text">
-                          <span tal:content="structure row/comment" />
-                          <tal:if condition="row/details | nothing"> 
-                              (<a class="action" i18n:translate="">Details</a>)
-                              <pre class="details" 
-                                  style="display: none"
-                                  tal:content="row/details" />
-                          </tal:if>
-                  </tr>
-              </tbody>
-              <tfoot>
-                  <tr>
-                      <th class="searchable"></th>
-                      <th class="searchable"></th>
-                      <th class="searchable"></th>
-                      <th class="searchable"></th>
-                  </tr>
-              </tfoot>
-          </table>
+          <table class="datatable"/>
+
+          <script type="text/javascript" tal:content="string: URL = '${context/absolute_url}'"></script>
 
           <script type="text/javascript">
 
-              var DATATABLES_ORDER = [0, "desc"];
+            DATA = null;
 
-              $(document).ready(function() {
+            function load_data(filter) {
+                console.log(filter);
+                if (DATA == null) {
+                    var url = URL + "/@@logger-entries";
+                    $.ajax({
+                        url: url,
+                        dataType: 'json',
+                        async: false,
+                        method: 'GET',
+                        success: function(result) {
+                            DATA = result;
+                        } 
+                    });
+                }
 
-                  $('.action').click(function() {
-                          $(this).siblings('pre').fadeToggle('fast');
-                  });
-              });
+                var result = $.grep(DATA, function(item, idx) {
+                    for (var key in filter) {
+                        var value = filter[key];
+                        if (value.length > 0) {
+                            if (item[key].indexOf(value) == -1)
+                                return false;
+                        }
+                    }
+                    return true;
+                });
+                return result;
+            }
+
+            function date_renderer(value, row) {
+                return row['date_str'];
+            }
+
+            function comment_renderer(value, row) {
+                var s = value;
+                if (row['details']) {
+                    var details = row['details'];
+                    s += ' <span class="details"><a class="show-details">[Details]</a><pre class="details-data" style="display: none">' + details + '</pre></span>';                
+                }
+                return s;
+            }
+
+
+            $(document).ready(function() {
+
+                $('body').on('click', '.show-details', function() {
+                    $(this).siblings('.details-data').toggle('fast');
+                });
+
+                $('.datatable').jsGrid({
+                    width: "100%",
+                    height: "600px",
+                    autoload: true,
+                    sorting: true,
+                    paging: true,
+                    filtering: true,
+                    controller: {
+                        loadData: load_data
+                    },
+
+                    fields: [
+                        { name: "date", title: "Date", type: "text", width: 75, itemTemplate: date_renderer, autosearch: true},
+                        { name: "level", title: "Level", type: "text", width: 50, css: 'field-type'},
+                        { name: "username", title: "Username", type: "text", width: 50, css: 'field-size', filtering: true},
+                        { name: "comment", title: "comment", type: "text", css: 'field-modified', filtering: true, itemTemplate: comment_renderer},
+                    ]
+                    });
+            });
           </script>
 
       </tal:def>
