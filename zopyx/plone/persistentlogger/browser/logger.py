@@ -34,6 +34,21 @@ class Logging(BrowserView):
     def is_plone5(self):
         return pkg_resources.get_distribution('Products.CMFPlone').version.startswith('5')
 
+    def demo(self):
+        """ Create demo logger entries """
+        import time
+        import random
+        alsoProvides(self.request, IDisableCSRFProtection)
+        logger = IPersistentLogger(self.context)
+        for i in range(20):  
+            text = u'some text üöä {}'.format(i)
+            level = random.choice(['debug', 'info', 'warn', 'error', 'fatal'])
+            details = dict(a=random.random(), b=random.random(), c=random.random())
+            logger.log(text, level, details)
+            time.sleep(0.3)
+        self.context.plone_utils.addPortalMessage(u'Demo logger entries created')
+        self.request.response.redirect(self.context.absolute_url() + '/@@persistent-log')
+
     def entries(self):
         alsoProvides(self.request, IDisableCSRFProtection)
         return IPersistentLogger(self.context).entries
@@ -44,13 +59,15 @@ class Logging(BrowserView):
             d = d.copy()
             d['date_str'] = d['date'].strftime(date_fmt)
             result.append(d)
-        return json.dumps(result, default=json_serial)
+        return json.dumps(result[::-1], default=json_serial)
 
     def log_clear(self):
         """ Clear persistent log """
         alsoProvides(self.request, IDisableCSRFProtection)
-        IPersistentLogger(self.context).clear()
+        logger = IPersistentLogger(self.context)
+        logger.clear()
         msg = u'Log entries cleared'
+        logger.log(msg, 'info')
         self.context.plone_utils.addPortalMessage(msg)
         return self.request.response.redirect(
             '{}/persistent-log'.format(self.context.absolute_url()))

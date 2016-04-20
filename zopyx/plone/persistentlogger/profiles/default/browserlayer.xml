@@ -1,0 +1,6 @@
+<layers>
+    <layer
+        name="zopyx.plone.persistentlogger"
+         interface="zopyx.plone.persistentlogger.interfaces.BrowserLayer"
+         />
+</layers>

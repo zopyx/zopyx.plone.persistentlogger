@@ -19,9 +19,17 @@
 
     <genericsetup:registerProfile
         name="default"
-        title="zopyx.plone.persistentlogger"
+        title="Plone persistent logger"
         directory="profiles/default"
         description="zopyx.plone.persistentlogger"
+        provides="Products.GenericSetup.interfaces.EXTENSION"
+    />
+
+    <genericsetup:registerProfile
+        name="demo"
+        title="Plone persistent logger (demo content)"
+        directory="profiles/demo"
+        description="zopyx.plone.persistentlogger (Demo content)"
         provides="Products.GenericSetup.interfaces.EXTENSION"
     />
 

@@ -3,14 +3,24 @@
     xmlns:zcml="http://namespaces.zope.org/zcml"
     xmlns:browser="http://namespaces.zope.org/browser"
     >
-    <!-- load permissions.zcml -->
+    
     <include package="Products.CMFCore" />
+
+    <browser:page
+        for="*"
+        name="logger-demo"
+        class=".logger.Logging"
+        attribute="demo"
+        layer="zopyx.plone.persistentlogger.interfaces.DemoBrowserLayer"
+        permission="cmf.ModifyPortalContent"
+    />
 
     <browser:page
         for="*"
         name="persistent-log"
         class=".logger.Logging"
         template="logger.pt"
+        layer="zopyx.plone.persistentlogger.interfaces.BrowserLayer"
         permission="cmf.ModifyPortalContent"
     />
 
@@ -19,6 +29,7 @@
         name="logger-entries"
         class=".logger.Logging"
         attribute="entries_json"
+        layer="zopyx.plone.persistentlogger.interfaces.BrowserLayer"
         permission="cmf.ModifyPortalContent"
     />
 
@@ -27,6 +38,7 @@
         name="persistent-log-clear"
         class=".logger.Logging"
         attribute="log_clear"
+        layer="zopyx.plone.persistentlogger.interfaces.BrowserLayer"
         permission="cmf.ModifyPortalContent"
     />
 

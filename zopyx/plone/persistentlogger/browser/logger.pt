@@ -13,7 +13,7 @@
     </metal:slot>
 
     <metal:slot fill-slot="javascript_head_slot">
-        <script type="text/javascript" charset="utf8" tal:attributes="src string:$portal_url/++resource++zopyx.plone.persistentlogger/jsgrid/jsgrid.js"></script>
+        <script type="text/javascript" charset="utf8" tal:attributes="src string:$portal_url/++resource++zopyx.plone.persistentlogger/jsgrid/jsgrid.min.js"></script>
     </metal:slot>
 
 <metal:main fill-slot="content-core">
@@ -23,6 +23,9 @@
       <h2 i18n:translate="">Logging</h2>
 
       <div class="datatable"></div>
+
+      <a tal:attributes="href string:${context/absolute_url}/@@persistent-log-clear" 
+          i18n:translate="">Clear log entries</a>
 
       <script type="text/javascript" tal:content="string: URL = '${context/absolute_url}'"></script>
       <script type="text/javascript" 
