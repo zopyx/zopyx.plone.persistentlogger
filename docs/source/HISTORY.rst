@@ -1,10 +1,10 @@
 Changelog
 =========
 
-0.3.3 (2016-04-20)
+
+0.3.4 (2016-04-22)
 ------------------
-- enabled paging option for Plone 4.3
-  (requires plone.app.jquery==1.8.3)
+- added preliminary toolbar icon
 
 0.3.2 (2016-04-20)
 ------------------

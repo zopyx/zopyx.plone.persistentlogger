@@ -10,3 +10,7 @@
 .datatable {
     overflow: auto !important;
 }
+
+.icon-persistent_log:before {
+    content: '\e80b';
+}
