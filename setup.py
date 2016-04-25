@@ -1,7 +1,7 @@
 import os
 from setuptools import setup, find_packages
 
-version = '0.3.4'
+version = '0.3.5'
 
 setup(name='zopyx.plone.persistentlogger',
       version=version,
