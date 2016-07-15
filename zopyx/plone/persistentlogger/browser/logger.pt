@@ -95,9 +95,9 @@
                 },
                 fields: [
                     { name: "date", title: "Date", type: "text", width: 30, itemTemplate: date_renderer, autosearch: true},
-                    { name: "level", title: "Level", type: "text", width: 20, css: 'field-type'},
-                    { name: "username", title: "Username", type: "text", width: 20, css: 'field-size', filtering: true},
-                    { name: "comment", title: "Comment", type: "text", css: 'field-modified', filtering: true, itemTemplate: comment_renderer},
+                    { name: "level", title: "Level", type: "text", width: 20, css: 'field-level'},
+                    { name: "username", title: "Username", type: "text", width: 20, css: 'field-username', filtering: true},
+                    { name: "comment", title: "Comment", type: "text", css: 'field-comment', filtering: true, itemTemplate: comment_renderer},
                 ]
                 });
         });

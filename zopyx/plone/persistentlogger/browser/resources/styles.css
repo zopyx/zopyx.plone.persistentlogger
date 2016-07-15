@@ -14,3 +14,12 @@
 .icon-persistent_log:before {
     content: '\e80b';
 }
+
+.field-username,
+.field-level {
+    text-align: center;
+}
+
+.field-comment {
+    text-align: left;
+}
