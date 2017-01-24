@@ -68,6 +68,7 @@ class PersistentLoggerAdapter(object):
 
     def log(self, comment, level='info', details=None):
         """ Add a log entry """
+
         annotations = self.annotations
         details_raw = None
         if details:

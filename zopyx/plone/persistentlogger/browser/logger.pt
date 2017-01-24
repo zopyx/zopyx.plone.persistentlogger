@@ -7,36 +7,93 @@
       i18n:domain="zopyx.plone.persistentlogger">
 <body>
 
-    <metal:slot fill-slot="style_slot">
-        <link rel="stylesheet" type="text/css" tal:attributes="href string:$portal_url/++resource++zopyx.plone.persistentlogger/jsgrid/jsgrid.min.css" />
-        <link rel="stylesheet" type="text/css" tal:attributes="href string:$portal_url/++resource++zopyx.plone.persistentlogger/jsgrid/jsgrid-theme.min.css" />
-    </metal:slot>
-
-    <metal:slot fill-slot="javascript_head_slot">
-        <script type="text/javascript" charset="utf8" tal:attributes="src string:$portal_url/++resource++zopyx.plone.persistentlogger/jsgrid/jsgrid.min.js"></script>
-    </metal:slot>
-
 <metal:main fill-slot="content-core">
     <metal:content-core define-macro="content-core"
         tal:define="toLocalizedTime nocall:context/@@plone/toLocalizedTime">
 
       <h2 i18n:translate="">Logging</h2>
 
-      <div class="datatable"></div>
+      <div id="myGrid" style="height: 500px;" class="ag-fresh"></div>
 
       <a tal:attributes="href string:${context/absolute_url}/@@persistent-log-clear" 
           i18n:translate="">Clear log entries</a>
+
+      <script type="text/javascript" tal:attributes="src string:$portal_url/++resource++zopyx.plone.persistentlogger/ag-grid/dist/ag-grid.js"></script>
+      <script type="text/javascript" tal:attributes="src string:$portal_url/++resource++zopyx.plone.persistentlogger/moment.js"></script>
 
       <script type="text/javascript" tal:content="string: URL = '${context/absolute_url}'"></script>
 
       <script type="text/javascript">
 
-        DATA = null;
+        /* all table entries */
+        var DATA = new Array();
+        var allOfTheData;
 
-        function load_data(filter) {
-            
-            if (DATA == null) {
-                var url = URL + "/@@logger-entries";
+        function date_renderer(params) {
+            var date = moment(params.value);
+            return date.format('YYYY-MM-DD hh:mm:ss');
+        }
+        function level_renderer(params) {
+            return params.value;
+        }
+        function username_renderer(params) {
+            return params.value;
+        }
+        function comment_renderer(params) {
+            return params.value;
+        }
+        function details_renderer(params) {
+            var details = params.value;
+            return '<pre>' + details + '</pre>';
+        }
+
+        function refresh_table() {
+            get_data();
+            setRowData(DATA);
+            gridOptions.api.sizeColumnsToFit();
+        }
+
+        function setRowData(rowData) {
+            allOfTheData = rowData;
+            createNewDatasource();
+        }
+
+        function createNewDatasource() {
+            if (!allOfTheData) {
+                // in case user selected 'onPageSizeChanged()' before the json was loaded
+                return;
+            }
+
+            var dataSource = {
+                //rowCount: ???, - not setting the row count, infinite paging will be used
+                pageSize: pageSize, // changing to number, as scope keeps it as a string
+                getRows: function (params) {
+                    // this code should contact the server for rows. however for the purposes of the demo,
+                    // the data is generated locally, a timer is used to give the experience of
+                    // an asynchronous call
+                    console.log('asking for ' + params.startRow + ' to ' + params.endRow);
+                    setTimeout( function() {
+                        // take a chunk of the array, matching the start and finish times
+                        var rowsThisPage = allOfTheData.slice(params.startRow, params.endRow);
+                        // see if we have come to the last page. if we have, set lastRow to
+                        // the very last row of the last page. if you are getting data from
+                        // a server, lastRow could be returned separately if the lastRow
+                        // is not in the current page.
+                        var lastRow = -1;
+                        if (allOfTheData.length <= params.endRow) {
+                            lastRow = allOfTheData.length;
+                        }
+                        params.successCallback(rowsThisPage, lastRow);
+                    }, 500);
+                }
+            };
+
+            gridOptions.api.setDatasource(dataSource);
+        }
+
+        function get_data(filter) {
+            var url = URL + "/@@logger-entries";
+            if (DATA.length == 0) {
                 $.ajax({
                     url: url,
                     dataType: 'json',
@@ -47,59 +104,68 @@
                     } 
                 });
             }
-
-            var result = $.grep(DATA, function(item, idx) {
-                for (var key in filter) {
-                    var value = filter[key];
-                    if (value.length > 0) {
-                        if (item[key].indexOf(value) == -1)
-                            return false;
-                    }
-                }
-                return true;
-            });
-            return result;
         }
 
-        function date_renderer(value, row) {
-            return row['date_str'];
-        }
+        var columnDefs = [
+            { headerName: "Date", 
+              field: 'date',
+              width: 100, 
+              cellRenderer: date_renderer,
+              filter: 'text',
+              suppressFilter: true
+            },
+            { headerName: "Level",
+              field: 'level', 
+              width: 60, 
+              cellClass: ['cell-center'],
+              cellRenderer: level_renderer,
+              suppressFilter: false
+            },
+            { headerName: "Username",
+              field: 'username', 
+              width: 70, 
+              cellClass: ['cell-center'],
+              cellRenderer: username_renderer,
+              suppressFilter: false
+            },
+            { headerName: "Comment", 
+              field: 'comment',
+              width: 200, 
+              cellClass: ['cell-center'],
+              cellRenderer: comment_renderer,
+              suppressFilter: false
+            },
+            { headerName: "Details", 
+              field: 'details',
+              width: 400, 
+              cellClass: ['cell-center'],
+              cellRenderer: details_renderer,
+              suppressFilter: true
+            },
+        ];
 
-        function comment_renderer(value, row) {
-            var s = value;
-            if (row['details']) {
-                var details = row['details'];
-                s += ' <span class="details"><a class="show-details">[Details]</a><pre class="details-data" style="display: none">' + details + '</pre></span>';                
-            }
-            return s;
-        }
 
+        var pageSize = 200;
+
+        var localeText = {
+
+        };
+
+        var gridOptions = {
+            // note - we do not set 'virtualPaging' here, so the grid knows we are doing standard paging
+            enableSorting: true,
+            enableFilter: true,
+            enableColResize: true,
+            columnDefs: columnDefs,
+            rowModelType: 'pagination',
+            rowHeight: 40,
+            localeText: localeText
+        };
 
         $(document).ready(function() {
-
-            $('body').on('click', '.show-details', function() {
-                $(this).siblings('.details-data').toggle('fast');
-            });
-
-            $('.datatable').jsGrid({
-                width: "90%",
-                height: "600px",
-                autoload: true,
-                sorting: true,
-                paging: true,
-                filtering: true,
-                pageSize: 16,
-                pageButtonCount: 5,
-                controller: {
-                    loadData: load_data
-                },
-                fields: [
-                    { name: "date", title: "Date", type: "text", width: 30, itemTemplate: date_renderer, autosearch: true},
-                    { name: "level", title: "Level", type: "text", width: 20, css: 'field-level'},
-                    { name: "username", title: "Username", type: "text", width: 20, css: 'field-username', filtering: true},
-                    { name: "comment", title: "Comment", type: "text", css: 'field-comment', filtering: true, itemTemplate: comment_renderer},
-                ]
-                });
+            var eGridDiv = document.querySelector('#myGrid');
+            new agGrid.Grid(eGridDiv, gridOptions);
+            refresh_table();
         });
       </script>
 
