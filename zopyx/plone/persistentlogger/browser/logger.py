@@ -23,6 +23,8 @@ def json_serial(obj):
     if isinstance(obj, datetime.datetime):
         serial = obj.isoformat()
         return serial
+    elif isinstance(obj, set):
+        return list(obj)
     raise TypeError ("Type not serializable")
 
 
@@ -36,7 +38,7 @@ class Logging(BrowserView):
         import random
         alsoProvides(self.request, IDisableCSRFProtection)
         logger = IPersistentLogger(self.context)
-        for i in range(20):  
+        for i in range(20):
             text = u'some text üöä {}'.format(i)
             level = random.choice(['debug', 'info', 'warn', 'error', 'fatal'])
             details = dict(a=random.random(), b=random.random(), c=random.random())
