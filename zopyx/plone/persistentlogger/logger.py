@@ -66,7 +66,7 @@ class PersistentLoggerAdapter(object):
                 all_annotations[LOG_KEY] = tree
         return all_annotations[LOG_KEY]
 
-    def log(self, comment, level='info', details=None):
+    def log(self, comment, level='info', username=None, details=None):
         """ Add a log entry """
         annotations = self.annotations
         details_raw = None
@@ -74,8 +74,10 @@ class PersistentLoggerAdapter(object):
             if not isinstance(details, basestring):
                 details_raw = details
                 details = pprint.pformat(details)
+        if not username:
+            username=plone.api.user.get_current().getUserName(),
         d = dict(date=datetime.datetime.utcnow(),
-                 username=plone.api.user.get_current().getUserName(),
+                 username=username,
                  level=level,
                  details=details,
                  details_raw=details_raw,
