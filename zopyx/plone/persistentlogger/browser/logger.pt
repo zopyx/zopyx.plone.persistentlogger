@@ -8,12 +8,12 @@
 <body>
 
     <metal:slot fill-slot="style_slot">
-        <link rel="stylesheet" type="text/css" tal:attributes="href string:$portal_url/++resource++zopyx.plone.persistentlogger/jsgrid/jsgrid.min.css" />
-        <link rel="stylesheet" type="text/css" tal:attributes="href string:$portal_url/++resource++zopyx.plone.persistentlogger/jsgrid/jsgrid-theme.min.css" />
+        <link rel="stylesheet" type="text/css" tal:attributes="href string:$portal_url/++resource++zopyx.plone.persistentlogger/jsgrid/dist/jsgrid.min.css" />
+        <link rel="stylesheet" type="text/css" tal:attributes="href string:$portal_url/++resource++zopyx.plone.persistentlogger/jsgrid/dist/jsgrid-theme.min.css" />
     </metal:slot>
 
     <metal:slot fill-slot="javascript_head_slot">
-        <script type="text/javascript" charset="utf8" tal:attributes="src string:$portal_url/++resource++zopyx.plone.persistentlogger/jsgrid/jsgrid.min.js"></script>
+        <script type="text/javascript" charset="utf8" tal:attributes="src string:$portal_url/++resource++zopyx.plone.persistentlogger/jsgrid/dist/jsgrid.min.js"></script>
     </metal:slot>
 
 <metal:main fill-slot="content-core">
@@ -34,7 +34,7 @@
         DATA = null;
 
         function load_data(filter) {
-            alert('loading');            
+            
             if (DATA == null) {
                 var url = URL + "/@@logger-entries";
                 $.ajax({
