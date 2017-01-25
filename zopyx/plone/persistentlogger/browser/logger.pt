@@ -34,7 +34,7 @@
         DATA = null;
 
         function load_data(filter) {
-            
+            alert('loading');            
             if (DATA == null) {
                 var url = URL + "/@@logger-entries";
                 $.ajax({
@@ -86,7 +86,7 @@
                 height: "600px",
                 autoload: true,
                 sorting: true,
-                paging: true,
+                /*paging: true, */
                 filtering: true,
                 pageSize: 16,
                 pageButtonCount: 5,
@@ -99,7 +99,9 @@
                     { name: "username", title: "Username", type: "text", width: 20, css: 'field-username', filtering: true},
                     { name: "comment", title: "Comment", type: "text", css: 'field-comment', filtering: true, itemTemplate: comment_renderer},
                 ]
-                });
+            });
+            $('.datatable').jsGrid('loadData');
+            
         });
       </script>
 
