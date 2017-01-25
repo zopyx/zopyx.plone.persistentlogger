@@ -74,7 +74,6 @@
             return s;
         }
 
-
         $(document).ready(function() {
 
             $('body').on('click', '.show-details', function() {
@@ -86,7 +85,7 @@
                 height: "600px",
                 autoload: true,
                 sorting: true,
-                /*paging: true, */
+                paging: false,
                 filtering: true,
                 pageSize: 16,
                 pageButtonCount: 5,
