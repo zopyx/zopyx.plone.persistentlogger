@@ -66,7 +66,7 @@ class PersistentLoggerAdapter(object):
                 all_annotations[LOG_KEY] = tree
         return all_annotations[LOG_KEY]
 
-    def log(self, comment, level='info', username=None, details=None):
+    def log(self, comment, level='info', username=None, info_url=None, details=None):
         """ Add a log entry """
         annotations = self.annotations
         details_raw = None
@@ -79,6 +79,7 @@ class PersistentLoggerAdapter(object):
         d = dict(date=datetime.datetime.utcnow(),
                  username=username,
                  level=level,
+                 info_url=info_url,
                  details=details,
                  details_raw=details_raw,
                  uuid=str(uuid.uuid1()),

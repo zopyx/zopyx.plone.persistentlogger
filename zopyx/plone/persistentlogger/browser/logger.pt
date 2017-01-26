@@ -65,8 +65,8 @@
             return row['date_str'];
         }
 
-        function url_info_renderer(value, row) {
-            return row['url_info'];
+        function info_url_renderer(value, row) {
+            return row['info_url'];
         }
 
         function comment_renderer(value, row) {
@@ -98,9 +98,9 @@
                 },
                 fields: [
                     { name: "date", title: "Date", type: "text", width: 30, css: 'field-date', itemTemplate: date_renderer, autosearch: true, filtering: true},
-                    { name: "level", title: "Level", type: "text", width: 20, css: 'field-level', filtering: true, autosearch: true, itemTemplate: url_info_renderer},
+                    { name: "level", title: "Level", type: "text", width: 20, css: 'field-level', filtering: true, autosearch: true },
                     { name: "username", title: "Username", type: "text", width: 20, css: 'field-username', filtering: true, autosearch: true},
-                    { name: "info_url", title: "Info", type: "text", width: 20, css: 'field-info-url', filtering: true, autosearch: true},
+                    { name: "info_url", title: "Info", type: "text", width: 20, css: 'field-info-url', filtering: true, autosearch: true, itemTemplate: info_url_renderer},
                     { name: "comment", title: "Comment", type: "text", css: 'field-comment', filtering: true, itemTemplate: comment_renderer, autosearch: true},
                 ]
             });
