@@ -15,6 +15,7 @@
     content: '\e80b';
 }
 
+.field-date,
 .field-username,
 .field-level {
     text-align: center;
