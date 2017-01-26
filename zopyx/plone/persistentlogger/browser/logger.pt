@@ -13,7 +13,7 @@
     </metal:slot>
 
     <metal:slot fill-slot="javascript_head_slot">
-        <script type="text/javascript" charset="utf8" tal:attributes="src string:$portal_url/++resource++zopyx.plone.persistentlogger/jsgrid/dist/jsgrid.min.js"></script>
+        <script type="text/javascript" charset="utf8" tal:attributes="src string:$portal_url/++resource++zopyx.plone.persistentlogger/jsgrid/dist/jsgrid.js"></script>
     </metal:slot>
 
 <metal:main fill-slot="content-core">
@@ -50,9 +50,9 @@
 
             var result = $.grep(DATA, function(item, idx) {
                 for (var key in filter) {
-                    var value = filter[key];
+                    var value = filter[key].toLowerCase();
                     if (value.length > 0) {
-                        if (item[key].indexOf(value) == -1)
+                        if (item[key].toLowerCase().indexOf(value) == -1)
                             return false;
                     }
                 }
@@ -93,10 +93,10 @@
                     loadData: load_data
                 },
                 fields: [
-                    { name: "date", title: "Date", type: "text", width: 30, itemTemplate: date_renderer, autosearch: true},
-                    { name: "level", title: "Level", type: "text", width: 20, css: 'field-level'},
-                    { name: "username", title: "Username", type: "text", width: 20, css: 'field-username', filtering: true},
-                    { name: "comment", title: "Comment", type: "text", css: 'field-comment', filtering: true, itemTemplate: comment_renderer},
+                    { name: "date", title: "Date", type: "text", width: 30, itemTemplate: date_renderer, autosearch: true, filtering: true},
+                    { name: "level", title: "Level", type: "text", width: 20, css: 'field-level', filtering: true, autosearch: true},
+                    { name: "username", title: "Username", type: "text", width: 20, css: 'field-username', filtering: true, autosearch: true},
+                    { name: "comment", title: "Comment", type: "text", css: 'field-comment', filtering: true, itemTemplate: comment_renderer, autosearch: true},
                 ]
             });
             $('.datatable').jsGrid('loadData');
