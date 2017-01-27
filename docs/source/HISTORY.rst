@@ -1,7 +1,7 @@
 Changelog
 =========
 
-0.4.0 (unreleased)
+0.4.0 (2017-01-27)
 ------------------
 - log() supports `username` as optional argument for overriding the 
   current username
