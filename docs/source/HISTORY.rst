@@ -1,6 +1,14 @@
 Changelog
 =========
 
+0.4.0 (unreleased)
+------------------
+- log() supports `username` as optional argument for overriding the 
+  current username
+- log() now accepts an optional parameter `info_url` which can either be
+  a full URL or a relative URL (relative to the Plone portal root) that will
+  be displayed within the logger table under the new column `Info`
+
 0.3.6 (2016-07-15)
 ------------------
 - minor CSS fixes
