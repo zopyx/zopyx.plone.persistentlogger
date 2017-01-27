@@ -7,13 +7,14 @@
       i18n:domain="zopyx.plone.persistentlogger">
 <body>
 
+    <metal:slot fill-slot="javascript_head_slot">
+        <script type="text/javascript" charset="utf8" tal:attributes="src string:$portal_url/++resource++zopyx.plone.persistentlogger/DataTables/datatables.js"></script>
+    </metal:slot>
+
     <metal:slot fill-slot="style_slot">
         <link rel="stylesheet" type="text/css" tal:attributes="href string:$portal_url/++resource++zopyx.plone.persistentlogger/DataTables/datatables.css" />
     </metal:slot>
 
-    <metal:slot fill-slot="javascript_head_slot">
-        <script type="text/javascript" charset="utf8" tal:attributes="src string:$portal_url/++resource++zopyx.plone.persistentlogger/DataTables/datatables.js"></script>
-    </metal:slot>
 
 <metal:main fill-slot="content-core">
     <metal:content-core define-macro="content-core"
