@@ -15,13 +15,32 @@
     content: '\e80b';
 }
 
-.field-info-url,
-.field-date,
-.field-username,
-.field-level {
+.field-date {
+    width: 100px;
     text-align: center;
+    white-space: nowrap;
+    margin-right: 1em;
+}
+
+.field-level {
+    max-width: 30px;
+    text-align: center;
+    margin-right: 1em;
+}
+
+.field-user {
+    max-width: 30px;
+    text-align: center;
+    margin-right: 1em;
+}
+
+.field-info_url {
+    max-width: 20px;
+    text-align: center;
+    margin-right: 1em;
 }
 
 .field-comment {
+    min-width: 300px;
     text-align: left;
 }

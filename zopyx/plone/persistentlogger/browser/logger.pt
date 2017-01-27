@@ -8,12 +8,11 @@
 <body>
 
     <metal:slot fill-slot="style_slot">
-        <link rel="stylesheet" type="text/css" tal:attributes="href string:$portal_url/++resource++zopyx.plone.persistentlogger/jsgrid/dist/jsgrid.min.css" />
-        <link rel="stylesheet" type="text/css" tal:attributes="href string:$portal_url/++resource++zopyx.plone.persistentlogger/jsgrid/dist/jsgrid-theme.min.css" />
+        <link rel="stylesheet" type="text/css" tal:attributes="href string:$portal_url/++resource++zopyx.plone.persistentlogger/DataTables/datatables.css" />
     </metal:slot>
 
     <metal:slot fill-slot="javascript_head_slot">
-        <script type="text/javascript" charset="utf8" tal:attributes="src string:$portal_url/++resource++zopyx.plone.persistentlogger/jsgrid/dist/jsgrid.js"></script>
+        <script type="text/javascript" charset="utf8" tal:attributes="src string:$portal_url/++resource++zopyx.plone.persistentlogger/DataTables/datatables.js"></script>
     </metal:slot>
 
 <metal:main fill-slot="content-core">
@@ -22,81 +21,57 @@
 
       <h2 i18n:translate="">Logging</h2>
 
-      <div class="datatable"></div>
+      <table class="datatable">
+          <thead>
+              <tr>
+                  <th class="field-date" i18n:translate="">Date</th>
+                  <th class="field-level" i18n:translate="">Level</th>
+                  <th class="field-user" i18n:translate="">User</th>
+                  <th class="field-info_url" i18n:translate="">Info</th>
+                  <th class="field-comment" i18n:translate="">comment</th>
+              </tr>
+          </thead>              
+
+          <tbody>
+              <tr tal:repeat="entry view/entries">
+                  <td class="field-date"
+                      tal:content="python: context.toLocalizedTime(entry['date'], True)"
+                      tal:attributes="data-sort python: entry['date'].isoformat()"/>
+                  <td class="field-level" tal:content="entry/level"/>
+                  <td class="field-user" tal:content="entry/username"/>
+                  <td class="field-info_url" tal:define="info_url entry/info_url|string:">
+                      <tal:if condition="info_url">
+                          <a tal:condition="python: info_url.startswith('http')"
+                             tal:attributes="href info_url"
+                             i18n:translate="">Info
+                         </a>
+                          <a tal:condition="not: python: info_url.startswith('http')"
+                             tal:attributes="href string:$portal_url/$info_url"
+                             i18n:translate="">Info
+                         </a>
+                      </tal:if>                     
+                  </td>                     
+                  <td class="field-comment">
+                      <span tal:content="entry/comment"/>
+                      <tal:if condition="entry/details">
+                        [<a class="show-details" i18n:translate="">Details</a>]
+                        <pre class="details-data"
+                             style="display: none" 
+                             tal:content="entry/details"/>
+                      </tal:if>
+                  </tr>
+          </tbody>
+      
+      </table>
 
       <a tal:attributes="href string:${context/absolute_url}/@@persistent-log-clear" 
           i18n:translate="">Clear log entries</a>
 
       <script type="text/javascript" tal:content="string: URL = '${context/absolute_url}'"></script>
-      <script type="text/javascript" 
-              tal:content="string: PORTAL_URL = '$portal_url'"></script>
+      <script type="text/javascript" tal:content="string: PORTAL_URL = '$portal_url'"></script>
 
       <script type="text/javascript">
 
-        DATA = null;
-
-        function checkArray(my_arr) {
-           for(var i=0;i<my_arr.length;i++){
-               if(my_arr[i] === "")   
-                  return false;
-           }
-           return true;
-        }
-
-        function load_data(filter) {
-            
-            if (DATA == null) {
-                var url = URL + "/@@logger-entries";
-                $.ajax({
-                    url: url,
-                    dataType: 'json',
-                    async: false,
-                    method: 'GET',
-                    success: function(result) {
-                        DATA = result;
-                    } 
-                });
-            }
-
-            var result = DATA;
-
-            for (var prop in filter) {
-                if (filter[prop].length > 0) {
-                  var result = $.grep(result, function (item) {
-                    var regexp = new RegExp(filter[prop], 'gi');
-                    if (item[prop].match(regexp)) {
-                      return item;
-                    }
-                  });
-                  break;
-                }
-            }
-            
-            return result;
-        }
-
-        function date_renderer(value, row) {
-            return row['date_str'];
-        }
-
-        function info_url_renderer(value, row) {
-            var value = row['info_url'];
-            if (! value) return;
-            if (value.indexOf('http') == 0) 
-                return '<a href="' + value + '">Info</a>';
-            else
-                return '<a href="' + PORTAL_URL + value + '">Info</a>';
-            return null;
-        }
-
-        function comment_renderer(value, row) {
-            var s = value;
-            if (row['details']) {
-                var details = row['details'];
-                s += ' <span class="details"><a class="show-details">[Details]</a><pre class="details-data" style="display: none">' + details + '</pre></span>';                
-            }
-            return s;
-        }
 
         $(document).ready(function() {
 
@@ -104,27 +79,41 @@
                 $(this).siblings('.details-data').toggle('fast');
             });
 
-            $('.datatable').jsGrid({
-                width: "90%",
-                height: "600px",
-                autoload: true,
-                sorting: true,
-                filtering: true,
-                pageSize: 16,
-                pageButtonCount: 5,
-                controller: {
-                    loadData: load_data
-                },
-                fields: [
-                    { name: "date", title: "Date", type: "text", width: 30, css: 'field-date', itemTemplate: date_renderer, autosearch: true, filtering: true},
-                    { name: "level", title: "Level", type: "text", width: 20, css: 'field-level', filtering: true, autosearch: true },
-                    { name: "username", title: "Username", type: "text", width: 20, css: 'field-username', filtering: true, autosearch: true},
-                    { name: "info_url", title: "Info", type: "text", width: 20, css: 'field-info-url', filtering: true, autosearch: true, itemTemplate: info_url_renderer},
-                    { name: "comment", title: "Comment", type: "text", css: 'field-comment', filtering: true, itemTemplate: comment_renderer, autosearch: true},
-                ]
+            $('.datatable').each(function() {
+
+                var thead = $(this).find('thead');
+                var tfoot = $(this).find('tfoot');
+                if (!tfoot.length && thead.length) {
+                    var html = thead.wrap('<p/>').parent().html();
+                    html = html.replace('thead', 'tfoot');
+                    $(html).appendTo($(this));
+                }
             });
-            $('.datatable').jsGrid('loadData');
-            
+
+            $('.datatable tfoot th').each( function (i) {
+                var title = $(this).text();
+                $(this).html( '<input type="text" placeholder="Search '+title+'" data-index="'+i+'" />' );
+            });
+
+            var table = $('.datatable').DataTable({
+                dom: '<"clear">lfrtip',
+                lengthMenu: [[10, 25, 50, -1], [10, 25, 50, "All"]],
+                pageLength: 25,
+            });
+
+            table.columns().every( function () {
+                var that = this;
+                $( 'input', this.footer() ).on( 'keyup change', function () {
+                    if ( that.search() !== this.value ) {
+                        that
+                            .search( this.value )
+                            .draw();
+                    }
+                } );
+            });
+
+
+
         });
       </script>
 

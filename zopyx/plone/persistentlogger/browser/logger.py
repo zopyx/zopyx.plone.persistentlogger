@@ -48,7 +48,7 @@ class Logging(BrowserView):
 
     def entries(self):
         alsoProvides(self.request, IDisableCSRFProtection)
-        return IPersistentLogger(self.context).entries
+        return reversed(IPersistentLogger(self.context).entries)
 
     def entries_json(self, date_fmt='%d.%m.%Y %H:%M:%S'):
         result = list()
