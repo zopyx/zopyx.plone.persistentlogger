@@ -19,28 +19,33 @@
     width: 100px;
     text-align: center;
     white-space: nowrap;
+    vertical-align: top;
     margin-right: 1em;
 }
 
 .field-level {
     max-width: 30px;
     text-align: center;
+    vertical-align: top;
     margin-right: 1em;
 }
 
 .field-user {
     max-width: 30px;
     text-align: center;
+    vertical-align: top;
     margin-right: 1em;
 }
 
 .field-info_url {
     max-width: 20px;
     text-align: center;
+    vertical-align: top;
     margin-right: 1em;
 }
 
 .field-comment {
     min-width: 300px;
+    vertical-align: top;
     text-align: left;
 }

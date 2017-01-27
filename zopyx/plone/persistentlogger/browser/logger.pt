@@ -8,7 +8,19 @@
 <body>
 
     <metal:slot fill-slot="javascript_head_slot">
+        <script>
+            window.__define = window.define;
+            window.__require = window.require;
+            window.define = undefined;
+            window.require = undefined;
+        </script>
         <script type="text/javascript" charset="utf8" tal:attributes="src string:$portal_url/++resource++zopyx.plone.persistentlogger/DataTables/datatables.js"></script>
+        <script>
+            window.define = window.__define;
+            window.require = window.__require;
+            window.__define = undefined;
+            window.__require = undefined;
+        </script>
     </metal:slot>
 
     <metal:slot fill-slot="style_slot">
