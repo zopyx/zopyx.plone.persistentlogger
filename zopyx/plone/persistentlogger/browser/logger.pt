@@ -28,6 +28,8 @@
           i18n:translate="">Clear log entries</a>
 
       <script type="text/javascript" tal:content="string: URL = '${context/absolute_url}'"></script>
+      <script type="text/javascript" 
+              tal:content="string: PORTAL_URL = '$portal_url'"></script>
 
       <script type="text/javascript">
 
@@ -49,10 +51,18 @@
             }
 
             var result = $.grep(DATA, function(item, idx) {
-                for (var key in filter) {
-                    var value = filter[key].toLowerCase();
-                    if (value.length > 0) {
-                        if (item[key].toLowerCase().indexOf(value) == -1)
+            for (var key in filter) {
+
+                    var value = (filter[key]);
+                    if (! value) value = '';
+                    value = value.toLowerCase();
+
+                    var item_key = item[key];
+                    if (! item_key) item_key = '';
+                    item_key = item_key.toLowerCase();
+
+                    if (! item_key) {
+                        if (item_key.indexOf(value) == -1)
                             return false;
                     }
                 }
@@ -66,7 +76,13 @@
         }
 
         function info_url_renderer(value, row) {
-            return row['info_url'];
+            var value = row['info_url'];
+            if (! value) return;
+            if (value.indexOf('http') == 0) 
+                return '<a href="' + value + '">Info</a>';
+            else
+                return '<a href="' + PORTAL_URL + value + '">Info</a>';
+            return null;
         }
 
         function comment_renderer(value, row) {
