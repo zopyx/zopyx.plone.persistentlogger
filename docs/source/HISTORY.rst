@@ -1,6 +1,10 @@
 Changelog
 =========
 
+0.4.2 (2017-01-28)
+------------------
+-fixes
+
 0.4.0 (2017-01-27)
 ------------------
 - log() supports `username` as optional argument for overriding the 

@@ -75,7 +75,7 @@ class PersistentLoggerAdapter(object):
                 details_raw = details
                 details = pprint.pformat(details)
         if not username:
-            username=plone.api.user.get_current().getUserName(),
+            username=plone.api.user.get_current().getUserName()
         d = dict(date=datetime.datetime.utcnow(),
                  username=username,
                  level=level,
