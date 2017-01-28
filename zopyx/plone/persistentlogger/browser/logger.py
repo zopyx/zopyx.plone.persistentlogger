@@ -41,7 +41,7 @@ class Logging(BrowserView):
             text = u'some text üöä {}'.format(i)
             level = random.choice(['debug', 'info', 'warn', 'error', 'fatal'])
             details = dict(a=random.random(), b=random.random(), c=random.random())
-            logger.log(text, level, details)
+            logger.log(comment=text, level=level, details=details)
             time.sleep(0.3)
         self.context.plone_utils.addPortalMessage(u'Demo logger entries created')
         self.request.response.redirect(self.context.absolute_url() + '/@@persistent-log')
