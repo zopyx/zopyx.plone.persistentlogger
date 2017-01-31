@@ -43,7 +43,7 @@
                   <th class="field-level" i18n:translate="">Level</th>
                   <th class="field-user" i18n:translate="">User</th>
                   <th class="field-info_url" i18n:translate="">Info</th>
-                  <th class="field-comment" i18n:translate="">comment</th>
+                  <th class="field-comment" i18n:translate="">Comment</th>
               </tr>
           </thead>              
 
@@ -107,7 +107,7 @@
 
             $('.datatable tfoot th').each( function (i) {
                 var title = $(this).text();
-                $(this).html( '<input type="text" placeholder="Search '+title+'" data-index="'+i+'" />' );
+                $(this).html( '<input type="text" placeholder="' + title +'..." data-index="'+i+'" />' );
             });
 
             var table = $('.datatable').DataTable({
