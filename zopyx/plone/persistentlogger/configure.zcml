@@ -26,6 +26,14 @@
     />
 
     <genericsetup:registerProfile
+        name="uninstall"
+        title="Plone persistent logger (uninstall)"
+        directory="profiles/uninstall"
+        description="zopyx.plone.persistentlogger (uninstall)"
+        provides="Products.GenericSetup.interfaces.EXTENSION"
+    />
+
+    <genericsetup:registerProfile
         name="demo"
         title="Plone persistent logger (demo content)"
         directory="profiles/demo"
