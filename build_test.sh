@@ -15,7 +15,7 @@ then
 fi
 
 
-virtualenv-2.7 .
+virtualenv .
 bin/pip install -U setuptools==7.0  
 bin/python bootstrap.py -c $config --setuptools-version 7.0 --version 2.2.5
 bin/buildout -c $config
