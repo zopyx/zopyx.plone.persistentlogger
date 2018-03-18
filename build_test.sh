@@ -17,6 +17,6 @@ fi
 
 virtualenv --clear .
 bin/pip install -r requirements.txt
-bin/python bootstrap
+bin/buildout bootstrap
 bin/buildout -c $config
 bin/test -s zopyx.plone.persistentlogger
