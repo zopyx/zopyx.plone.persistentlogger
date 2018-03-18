@@ -15,8 +15,8 @@ then
 fi
 
 
-virtualenv .
-bin/pip install -U setuptools==7.0  
-bin/python bootstrap.py -c $config --setuptools-version 7.0 --version 2.2.5
+virtualenv --clear .
+bin/pip install -r requirements.txt
+bin/python bootstrap
 bin/buildout -c $config
 bin/test -s zopyx.plone.persistentlogger
