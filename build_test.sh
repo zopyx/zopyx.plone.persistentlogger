@@ -14,6 +14,11 @@ then
     config=buildout-plone-5.0.cfg
 fi
 
+if [[ "$1" = "plone-5.1" ]]
+then
+    config=buildout-plone-5.1.cfg
+fi
+
 
 virtualenv --clear .
 bin/pip install -r requirements.txt
