@@ -27,12 +27,11 @@ class IPersistentLogger(zope.interface.Interface):
     """ Marker interface for a object persistent logger """
 
 
+@zope.interface.implementer(IPersistentLogger)
 class PersistentLoggerAdapter(object):
     """ An adapter for storing logging information as an annotation
         on a persistent object.
     """
-
-    zope.interface.implements(IPersistentLogger)
 
     def __init__(self, context):
         self.context = context
@@ -71,7 +70,7 @@ class PersistentLoggerAdapter(object):
         annotations = self.annotations
         details_raw = None
         if details:
-            if not isinstance(details, basestring):
+            if not isinstance(details, str):
                 details_raw = details
                 details = pprint.pformat(details)
         if not username:

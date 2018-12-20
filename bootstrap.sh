@@ -1,4 +1,4 @@
 #!/bin/sh
-virtualenv-2.7 --clear .
+python3 -m venv .
 ./bin/pip install -r requirements.txt
 ./bin/buildout $*
