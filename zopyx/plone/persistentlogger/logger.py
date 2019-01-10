@@ -56,13 +56,6 @@ class PersistentLoggerAdapter(object):
         all_annotations = IAnnotations(self.context)
         if LOG_KEY not in all_annotations:
             all_annotations[LOG_KEY] = OOBTree()
-        else:
-            annotations = all_annotations[LOG_KEY]
-            if isinstance(annotations, PersistentList):
-                tree = OOBTree()
-                for d in annotations:
-                    tree[d['date']] = d
-                all_annotations[LOG_KEY] = tree
         return all_annotations[LOG_KEY]
 
     def log(self, comment, level='info', username=None, info_url=None, details=None):
@@ -83,7 +76,7 @@ class PersistentLoggerAdapter(object):
                  details_raw=details_raw,
                  uuid=str(uuid.uuid1()),
                  comment=comment)
-        annotations[d['date']] = d
+        annotations[d['date'].isoformat()] = d
         annotations._p_changed = 1
         IAnnotations(self.context)[LOG_LAST_USER] = plone.api.user.get_current().getUserName()
         IAnnotations(self.context)[LOG_LAST_DATE] = datetime.datetime.utcnow()
