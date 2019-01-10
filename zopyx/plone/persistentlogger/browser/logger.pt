@@ -67,7 +67,7 @@
                       </tal:if>                     
                   </td>                     
                   <td class="field-comment">
-                      <span tal:content="entry/comment"/>
+                      <span tal:content="structure entry/comment"/>
                       <tal:if condition="entry/details">
                         [<a class="show-details" i18n:translate="">Details</a>]
                         <pre class="details-data"
