@@ -38,7 +38,7 @@ class PersistentLoggerAdapter(object):
 
     @property
     def entries(self, min_datetime=None, max_datetime=None):
-        return sorted(self.annotations.values(min_datetime, max_datetime))
+        return self.annotations.values(min_datetime, max_datetime)
 
     def entry_by_uuid(self, target_uuid):
         """ Find a logger entry by uuid """
