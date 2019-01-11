@@ -6,6 +6,7 @@
 ################################################################
 
 import json
+import operator
 import datetime
 
 from zope.interface import alsoProvides
@@ -48,7 +49,9 @@ class Logging(BrowserView):
 
     def entries(self):
         alsoProvides(self.request, IDisableCSRFProtection)
-        return reversed(IPersistentLogger(self.context).entries)
+        result = list(IPersistentLogger(self.context).entries)
+        result = sorted(result, key=operator.itemgetter('date'))
+        return result
 
     def entries_json(self, date_fmt='%d.%m.%Y %H:%M:%S'):
         result = list()
