@@ -11,6 +11,13 @@
     overflow: auto !important;
 }
 
+.datatable .field-date,
+.datatable .field-level,
+.datatable .field-user,
+.datatable .field-info_url {
+    white-space: nowrap;
+}
+
 .icon-persistent_log:before {
     content: '\e80b';
 }
