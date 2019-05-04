@@ -36,7 +36,7 @@
 
       <h2 i18n:translate="">Logging</h2>
 
-      <table class="datatable">
+      <table class="datatable" id="logging">
           <thead>
               <tr>
                   <th class="field-date" i18n:translate="">Date</th>

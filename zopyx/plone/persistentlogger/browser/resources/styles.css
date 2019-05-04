@@ -15,8 +15,13 @@
     content: '\e80b';
 }
 
+
+#logging thead th {
+    white-space: nowrap;
+}
+
 .field-date {
-    width: 100px;
+    width: 80px;
     text-align: center;
     white-space: nowrap;
     vertical-align: top;
@@ -24,21 +29,21 @@
 }
 
 .field-level {
-    max-width: 20px;
-    text-align: center;
-    vertical-align: top;
-    margin-right: 1em;
-}
-
-.field-user {
     max-width: 30px;
     text-align: center;
     vertical-align: top;
     margin-right: 1em;
 }
 
+.field-user {
+    max-width: 100px;
+    text-align: center;
+    vertical-align: top;
+    margin-right: 1em;
+}
+
 .field-info_url {
-    max-width: 20px;
+    max-width: 40px;
     text-align: center;
     vertical-align: top;
     margin-right: 1em;
