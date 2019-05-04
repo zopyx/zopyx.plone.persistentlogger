@@ -48,7 +48,7 @@
           </thead>              
 
           <tbody>
-              <tr tal:repeat="entry python: reversed(view.entries())">
+              <tr tal:repeat="entry python: view.entries()">
                   <td class="field-date"
                       tal:content="python: context.toLocalizedTime(entry['date'], True)"
                       tal:attributes="data-sort python: entry['date'].isoformat()"/>
@@ -112,8 +112,9 @@
 
             var table = $('.datatable').DataTable({
                 dom: '<"clear">lfrtip',
-                lengthMenu: [[10, 25, 50, -1], [10, 25, 50, "All"]],
+                lengthMenu: [[10, 25, 50, 500, -1], [10, 25, 50, 500, "All"]],
                 pageLength: 25,
+                order:  [[0, "desc"]]
             });
 
             table.columns().every( function () {
