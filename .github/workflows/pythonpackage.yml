@@ -22,8 +22,11 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
 
-    - name: Test with pytest
+    - name: Plone Buildout
       run: |
         pip install -r requirements.txt
         buildout
+
+    - name: Plone text
+      run: 
         test zopyx.plone.persistentlogger
