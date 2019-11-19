@@ -27,6 +27,6 @@ jobs:
         pip install -r requirements.txt
         buildout
 
-    - name: Plone text
+    - name: Plone test
       run: 
         test zopyx.plone.persistentlogger
