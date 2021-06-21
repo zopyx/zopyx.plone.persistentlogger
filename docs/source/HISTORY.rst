@@ -1,6 +1,10 @@
 Changelog
 =========
 
+0.5.0 (2021-06-21)
+------------------
+- addd file_logger module with support for "loguru" bases loggers
+
 0.4.8 (2019-03-03)
 ------------------
 - minor UI tweaks 
