@@ -45,8 +45,7 @@ class PersistentLoggerAdapter(object):
         for entry in self.entries:
             if target_uuid == entry.get('uuid'):
                 return entry
-        raise ValueError(
-            u'No log entry with UUID {} found'.format(target_uuid))
+        raise ValueError(f'No log entry with UUID {target_uuid} found')
 
     def __len__(self):
         return len(self.entries)
@@ -62,10 +61,9 @@ class PersistentLoggerAdapter(object):
         """ Add a log entry """
         annotations = self.annotations
         details_raw = None
-        if details:
-            if not isinstance(details, str):
-                details_raw = details
-                details = pprint.pformat(details)
+        if details and not isinstance(details, str):
+            details_raw = details
+            details = pprint.pformat(details)
         if not username:
             username=plone.api.user.get_current().getUserName()
         d = dict(date=datetime.datetime.utcnow(),

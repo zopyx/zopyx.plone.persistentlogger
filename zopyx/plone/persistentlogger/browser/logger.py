@@ -25,7 +25,7 @@ def json_serial(obj):
         return obj.isoformat()
     elif isinstance(obj, set):
         return list(obj)
-    raise TypeError('Type not serializable ({})'.format(obj))
+    raise TypeError(f'Type not serializable ({obj})')
 
 
 class Logging(BrowserView):
@@ -39,13 +39,15 @@ class Logging(BrowserView):
         alsoProvides(self.request, IDisableCSRFProtection)
         logger = IPersistentLogger(self.context)
         for i in range(20):
-            text = u'some text üöä {}'.format(i)
+            text = f'some text üöä {i}'
             level = random.choice(['debug', 'info', 'warn', 'error', 'fatal'])
             details = dict(a=random.random(), b=random.random(), c=random.random())
             logger.log(comment=text, level=level, details=details)
             time.sleep(0.3)
         self.context.plone_utils.addPortalMessage(u'Demo logger entries created')
-        self.request.response.redirect(self.context.absolute_url() + '/@@persistent-log')
+        self.request.response.redirect(
+            f'{self.context.absolute_url()}/@@persistent-log'
+        )
 
     def entries(self):
         alsoProvides(self.request, IDisableCSRFProtection)
@@ -54,7 +56,7 @@ class Logging(BrowserView):
         return result
 
     def entries_json(self, date_fmt='%d.%m.%Y %H:%M:%S'):
-        result = list()
+        result = []
         for d in self.entries():
             d = d.copy()
             d['date_str'] = d['date'].strftime(date_fmt)
@@ -70,7 +72,8 @@ class Logging(BrowserView):
         logger.log(msg, 'info')
         self.context.plone_utils.addPortalMessage(msg)
         return self.request.response.redirect(
-            '{}/persistent-log'.format(self.context.absolute_url()))
+            f'{self.context.absolute_url()}/persistent-log'
+        )
 
     def __call__(self):
         return self.template()

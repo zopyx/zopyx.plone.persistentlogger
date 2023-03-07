@@ -137,11 +137,10 @@ if version is None and not options.accept_buildout_test_releases:
         try:
             return not parsed_version.is_prerelease
         except AttributeError:
-            # Older setuptools
-            for part in parsed_version:
-                if (part[:1] == '*') and (part not in _final_parts):
-                    return False
-            return True
+            return not any(
+                (part[:1] == '*') and (part not in _final_parts)
+                for part in parsed_version
+            )
 
     index = setuptools.package_index.PackageIndex(
         search_path=[setuptools_path])
@@ -183,7 +182,7 @@ if not [a for a in args if '=' not in a]:
 
 # if -c was provided, we push it back into args for buildout' main function
 if options.config_file is not None:
-    args[0:0] = ['-c', options.config_file]
+    args[:0] = ['-c', options.config_file]
 
 zc.buildout.buildout.main(args)
 shutil.rmtree(tmpeggs)

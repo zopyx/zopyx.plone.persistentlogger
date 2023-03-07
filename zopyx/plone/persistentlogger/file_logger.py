@@ -40,11 +40,11 @@ def get_logger(
     if log_stdout:
         LOG.add(sys.stdout, format=fmt, level=level)
     if prefix:
-        log_name = log_root / (prefix + ".log")
+        log_name = log_root / f"{prefix}.log"
         LOG.add(log_name, rotation=rotation, format=fmt, retention=retention, level=level)
         LOG.info(f"Logfile added: {log_name}")
     if log_as_json:
-        log_name = log_root / (prefix + ".json")
+        log_name = log_root / f"{prefix}.json"
         LOG.add(log_name, rotation=rotation, serialize=True, format=fmt, retention=retention, level=level)
         LOG.info(f"Logfile added: {log_name}")
     return LOG
