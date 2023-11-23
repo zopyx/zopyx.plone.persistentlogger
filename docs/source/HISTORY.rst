@@ -1,9 +1,13 @@
 Changelog
 =========
 
+0.5.2 (2023-11-23)
+------------------
+- updated to DataTables 1.13.x
+
 0.5.0 (2021-06-21)
 ------------------
-- addd file_logger module with support for "loguru" based loggers
+- add file_logger module with support for "loguru" based loggers
 
 0.4.8 (2019-03-03)
 ------------------
