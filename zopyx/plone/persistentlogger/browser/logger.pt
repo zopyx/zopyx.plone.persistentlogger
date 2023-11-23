@@ -76,7 +76,6 @@
                       </tal:if>
                   </tr>
           </tbody>
-      
       </table>
 
       <a tal:attributes="href string:${context/absolute_url}/@@persistent-log-clear" 
