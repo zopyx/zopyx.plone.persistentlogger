@@ -36,7 +36,7 @@
 
       <h2 i18n:translate="">Logging</h2>
 
-      <table class="datatable" id="logging">
+      <table class="datatable table table-striped" id="logging" style="width: 100%">
           <thead>
               <tr>
                   <th class="field-date" i18n:translate="">Date</th>
