@@ -9,6 +9,7 @@ import json
 import operator
 import datetime
 
+import plone.api
 from zope.interface import alsoProvides
 
 from Products.Five.browser import BrowserView
@@ -44,7 +45,7 @@ class Logging(BrowserView):
             details = dict(a=random.random(), b=random.random(), c=random.random())
             logger.log(comment=text, level=level, details=details)
             time.sleep(0.3)
-        self.context.plone_utils.addPortalMessage(u'Demo logger entries created')
+        plone.api.portal.show_message(u'Demo logger entries created', request=self.request)
         self.request.response.redirect(self.context.absolute_url() + '/@@persistent-log')
 
     def entries(self):
@@ -68,7 +69,7 @@ class Logging(BrowserView):
         logger.clear()
         msg = u'Log entries cleared'
         logger.log(msg, 'info')
-        self.context.plone_utils.addPortalMessage(msg)
+        plone.api.portal.show_message(msg, request=self.request)
         return self.request.response.redirect(
             '{}/persistent-log'.format(self.context.absolute_url()))
 
