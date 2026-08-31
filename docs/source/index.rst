@@ -7,4 +7,5 @@ Contents:
    :maxdepth: 2
 
    README.rst
+   MODERNIZATION_PLAN.rst
    HISTORY.rst
