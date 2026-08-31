@@ -18,5 +18,14 @@ upload-docs:
 	python setup.py upload_docs --upload-dir docs/build/html
 
 test:
-	bin/test zopyx.plone.persistentlogger
+	@if [ -x bin/test ]; then \
+		bin/test zopyx.plone.persistentlogger; \
+	else \
+		uv run --python 3.11 \
+			--with zope.testrunner \
+			--with loguru \
+			--with plone.api \
+			--with plone.app.testing \
+			zope-testrunner --path . --package zopyx.plone.persistentlogger; \
+	fi
 
