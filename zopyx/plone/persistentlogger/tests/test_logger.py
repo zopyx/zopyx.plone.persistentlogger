@@ -61,6 +61,10 @@ class BasicTests(TestBase):
             details="plain text",
         )
 
+    def test_zz_login_helper(self):
+        self.login("god")
+        self.assertIsNotNone(self.portal.acl_users.getUser("god"))
+
 
 class FileLoggerTests(unittest.TestCase):
     def test_new_logger_creates_isolated_loguru_logger(self):
