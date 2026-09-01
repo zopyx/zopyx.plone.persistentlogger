@@ -4,12 +4,14 @@
 ################################################################
 
 
+import datetime
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 from zopyx.plone.persistentlogger import file_logger
+from zopyx.plone.persistentlogger.browser.logger import Logging, json_serial
 from zopyx.plone.persistentlogger.logger import IPersistentLogger
 
 from .base import TestBase
@@ -97,6 +99,61 @@ class FileLoggerTests(unittest.TestCase):
         logger.info.assert_not_called()
 
 
+class BrowserLoggerTests(unittest.TestCase):
+    def setUp(self):
+        self.context = MagicMock()
+        self.context.absolute_url.return_value = "https://example.test/item"
+        self.request = MagicMock()
+        self.view = Logging(self.context, self.request)
+
+    def test_json_serial(self):
+        value = datetime.datetime(2026, 1, 2, 3, 4, 5)
+        self.assertEqual(json_serial(value), "2026-01-02T03:04:05")
+        self.assertCountEqual(json_serial({"one", "two"}), ["one", "two"])
+        with self.assertRaises(TypeError):
+            json_serial(object())
+
+    def test_entries_and_entries_json(self):
+        entries = [
+            {"date": datetime.datetime(2026, 1, 2, 3, 4, 5), "comment": "new"},
+            {"date": datetime.datetime(2026, 1, 1, 3, 4, 5), "comment": "old"},
+        ]
+        adapter = MagicMock()
+        adapter.entries = entries
+        with patch(
+            "zopyx.plone.persistentlogger.browser.logger.IPersistentLogger",
+            return_value=adapter,
+        ):
+            result = self.view.entries()
+            payload = self.view.entries_json()
+
+        self.assertEqual(result, [entries[1], entries[0]])
+        self.assertIn('"comment": "new"', payload)
+        self.assertIn('"date_str": "02.01.2026 03:04:05"', payload)
+
+    def test_demo_clear_and_call(self):
+        adapter = MagicMock()
+        self.context.plone_utils = MagicMock()
+        self.request.response = MagicMock()
+        self.view.template = MagicMock(return_value="rendered")
+        with (
+            patch(
+                "zopyx.plone.persistentlogger.browser.logger.IPersistentLogger",
+                return_value=adapter,
+            ),
+            patch("time.sleep"),
+        ):
+            self.view.demo()
+            redirect = self.view.log_clear()
+            rendered = self.view()
+
+        self.assertEqual(adapter.log.call_count, 21)
+        adapter.clear.assert_called_once_with()
+        self.assertEqual(redirect, self.request.response.redirect.return_value)
+        self.assertEqual(rendered, "rendered")
+        self.context.plone_utils.addPortalMessage.assert_called()
+
+
 def test_suite():
     from unittest import TestLoader, TestSuite
 
@@ -104,4 +161,5 @@ def test_suite():
     suite = TestSuite()
     suite.addTest(loader.loadTestsFromTestCase(BasicTests))
     suite.addTest(loader.loadTestsFromTestCase(FileLoggerTests))
+    suite.addTest(loader.loadTestsFromTestCase(BrowserLoggerTests))
     return suite
