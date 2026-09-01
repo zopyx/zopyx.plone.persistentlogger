@@ -1,2 +1,2 @@
 setuptools==84.0.0
-zc.buildout==3.0.1
+zc.buildout==5.2.0
