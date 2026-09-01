@@ -126,9 +126,7 @@ class AuditUnitTests(unittest.TestCase):
             patch("zopyx.plone.persistentlogger.audit.log_event") as log_event_mock,
         ):
             audit_object_created(self.context, MagicMock())
-        self.assertEqual(
-            self.annotation_store[SNAPSHOT_KEY]["title"], "Old title"
-        )
+        self.assertEqual(self.annotation_store[SNAPSHOT_KEY]["title"], "Old title")
         log_event_mock.assert_called_once()
         kwargs = log_event_mock.call_args.kwargs
         self.assertEqual(kwargs["event_type"], "create")
@@ -168,14 +166,10 @@ class AuditUnitTests(unittest.TestCase):
             patch("zopyx.plone.persistentlogger.audit.log_event") as log_event_mock,
         ):
             audit_object_modified(context, MagicMock())
-        self.assertEqual(
-            self.annotation_store[SNAPSHOT_KEY]["title"], "New title"
-        )
+        self.assertEqual(self.annotation_store[SNAPSHOT_KEY]["title"], "New title")
         kwargs = log_event_mock.call_args.kwargs
         self.assertEqual(kwargs["event_type"], "edit")
-        self.assertEqual(
-            kwargs["details"]["changes"]["title"]["new"], "New title"
-        )
+        self.assertEqual(kwargs["details"]["changes"]["title"]["new"], "New title")
 
     def test_modified_without_changes_is_skipped(self):
         settings = Settings()
@@ -202,9 +196,7 @@ class AuditUnitTests(unittest.TestCase):
             patch("zopyx.plone.persistentlogger.audit.log_event") as log_event_mock,
         ):
             audit_object_modified(self.context, MagicMock())
-        self.assertEqual(
-            self.annotation_store[SNAPSHOT_KEY]["title"], "Old title"
-        )
+        self.assertEqual(self.annotation_store[SNAPSHOT_KEY]["title"], "Old title")
         log_event_mock.assert_not_called()
 
     def test_actor_fallback_on_missing_user(self):
