@@ -15,8 +15,13 @@ from zipfile import ZipFile
 from persistent import Persistent
 
 from zopyx.plone.persistentlogger.api import export_log, log_event
-from zopyx.plone.persistentlogger.browser.retention import Export as BrowserExport
-from zopyx.plone.persistentlogger.browser.retention import Retention as BrowserRetention
+from zopyx.plone.persistentlogger.browser.retention import (
+    Export as BrowserExport,
+)
+from zopyx.plone.persistentlogger.browser.retention import (
+    Retention as BrowserRetention,
+)
+from zopyx.plone.persistentlogger.browser.retention import RetentionGUI
 from zopyx.plone.persistentlogger.exports import export_events
 from zopyx.plone.persistentlogger.exports.ods import render_ods
 from zopyx.plone.persistentlogger.exports.xlsx import render_xlsx
@@ -317,6 +322,95 @@ class GovernanceTests(unittest.TestCase):
         ods_data = export_events([event], "ods")
         with ZipFile(io.BytesIO(ods_data)) as archive:
             self.assertIn("content.xml", archive.namelist())
+
+    def test_retention_gui_workflow(self):
+        def make_request(form, method="GET"):
+            return type(
+                "Request", (), {"form": form, "method": method, "response": MagicMock()}
+            )()
+
+        with (
+            patch.object(RetentionGUI, "template", MagicMock(return_value="rendered")),
+            patch("zopyx.plone.persistentlogger.browser.retention.CheckAuthenticator"),
+            patch(
+                "zopyx.plone.persistentlogger.browser.retention.IAnnotations",
+                return_value=self.annotation_store,
+            ),
+            patch(
+                "zopyx.plone.persistentlogger.browser.retention.plone.api.user.get_current",
+                return_value=MagicMock(getUserName=MagicMock(return_value="manager")),
+            ),
+        ):
+            # GET renders the page with the default policy
+            view = RetentionGUI(self.context, make_request({}))
+            self.assertEqual(view(), "rendered")
+            self.assertEqual(view.messages, [])
+            self.assertIsNone(view.preview)
+            self.assertEqual(view.preview_events, [])
+            self.assertFalse(view.policy.enabled)
+
+            # save-policy persists the form values
+            request = make_request(
+                {
+                    "action": "save-policy",
+                    "enabled": "1",
+                    "older_than_days": "30",
+                    "max_entries": "2",
+                },
+                "POST",
+            )
+            view = RetentionGUI(self.context, request)
+            self.assertEqual(view(), "rendered")
+            self.assertEqual(self.repository.policy().older_than_days, 30)
+            self.assertTrue(self.repository.policy().enabled)
+            self.assertEqual(view.messages, [("info", "Retention policy saved.")])
+
+            # preview with eligible entries sets operation_id and lists events
+            old = self.event(self.now - timedelta(days=31), "old")
+            self.repository.append(old)
+            request = make_request({"action": "preview"}, "POST")
+            view = RetentionGUI(self.context, request)
+            self.assertEqual(view(), "rendered")
+            self.assertEqual(len(view.preview_events), 1)
+            self.assertTrue(request.form["operation_id"])
+
+            # delete executes the stored preview
+            request = make_request(
+                {
+                    "action": "delete",
+                    "operation_id": request.form["operation_id"],
+                    "reason": "manual retention cleanup",
+                },
+                "POST",
+            )
+            view = RetentionGUI(self.context, request)
+            self.assertEqual(view(), "rendered")
+            self.assertEqual(len(self.repository.events()), 0)
+            self.assertEqual(
+                view.messages, [("info", "Deleted 1 entries (0 missing).")]
+            )
+
+            # delete without a preview reports an error
+            request = make_request(
+                {"action": "delete", "reason": "manual retention cleanup"}, "POST"
+            )
+            view = RetentionGUI(self.context, request)
+            self.assertEqual(view(), "rendered")
+            self.assertEqual(
+                view.messages,
+                [("error", "deletion preview is missing or stale")],
+            )
+
+            # preview with a disabled policy reports an error
+            request = make_request(
+                {"action": "save-policy", "older_than_days": "30", "max_entries": "2"},
+                "POST",
+            )
+            RetentionGUI(self.context, request)()
+            request = make_request({"action": "preview"}, "POST")
+            view = RetentionGUI(self.context, request)
+            self.assertEqual(view(), "rendered")
+            self.assertEqual(view.messages, [("error", "retention policy is disabled")])
 
     def test_optional_export_dependencies_report_clear_errors(self):
         original_import = __import__("builtins").__import__
