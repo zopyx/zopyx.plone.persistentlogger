@@ -28,8 +28,11 @@ Current functionality:
 * preview and execute object-scoped retention deletion;
 * record policy and deletion actions in a separate governance journal;
 * export logs as JSON, CSV, XLSX, or ODS;
-* expose a searchable and sortable browser table; and
-* provide manager-protected browser views for export and retention operations.
+* expose a searchable and sortable browser table;
+* provide manager-protected browser views for export and retention operations;
+* provide an HTML retention management page (policy, preview, confirmed
+  deletion); and
+* record content creation and metadata edits as site-wide audit logging.
 
 Modernization status:
 
@@ -239,6 +242,14 @@ For an object at ``http://host/path/to/object`` the current views are:
 
 ``@@persistent-log-retention-delete``
     Führt eine bestätigte, CSRF-geschützte Löschung per POST aus.
+
+``@@persistent-log-retention``
+    HTML management page for the retention workflow: edit the retention
+    policy, generate a deletion preview, and confirm deletion with a
+    reason. Manager-only.
+
+``@@audit-logging-settings``
+    Control panel view for the site-wide audit logging settings.
 
 ``@@logger-demo``
     Entwicklungs-/Demo-Datengenerator, verfügbar über den Demo-Browser-Layer.
