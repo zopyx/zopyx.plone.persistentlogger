@@ -44,7 +44,7 @@ def get_logger(
             log_name, rotation=rotation, format=fmt, retention=retention, level=level
         )
         LOG.info(f"Logfile added: {log_name}")
-    if log_as_json:
+    if log_as_json and prefix:
         log_name = log_root / (prefix + ".json")
         LOG.add(
             log_name,

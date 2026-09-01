@@ -15,9 +15,7 @@ authors = [
 keywords = ["Plone", "logging", "governance"]
 classifiers = [
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.11",
-    "Programming Language :: Python :: 3.12",
-    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Framework :: Plone",
     "Framework :: Plone :: 6.2",
     "Framework :: Zope2",
@@ -67,6 +65,16 @@ select = ["E", "F", "W", "I", "UP"]
 [tool.coverage.run]
 branch = true
 source = ["zopyx.plone.persistentlogger"]
+
+[tool.ty.rules]
+# Plone/Zope uses dynamic interfaces and persistent annotation mappings whose
+# runtime APIs are not fully represented by third-party typing metadata.
+unsupported-base = "ignore"
+unresolved-import = "ignore"
+unsupported-operator = "ignore"
+invalid-assignment = "ignore"
+invalid-argument-type = "ignore"
+unresolved-attribute = "ignore"
 
 [tool.coverage.report]
 precision = 1

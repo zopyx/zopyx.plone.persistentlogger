@@ -63,7 +63,7 @@ class PersistentLoggerAdapter:
         if not username:
             username = plone.api.user.get_current().getUserName()
         d = dict(
-            date=datetime.datetime.utcnow(),
+            date=datetime.datetime.now(datetime.UTC),
             username=username,
             level=level,
             info_url=info_url,
@@ -77,7 +77,7 @@ class PersistentLoggerAdapter:
         IAnnotations(self.context)[LOG_LAST_USER] = (
             plone.api.user.get_current().getUserName()
         )
-        IAnnotations(self.context)[LOG_LAST_DATE] = datetime.datetime.utcnow()
+        IAnnotations(self.context)[LOG_LAST_DATE] = datetime.datetime.now(datetime.UTC)
         self.context.setModificationDate(DateTime())
 
     def get_last_user(self):

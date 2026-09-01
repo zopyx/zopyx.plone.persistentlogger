@@ -25,7 +25,11 @@ typecheck:
 	$(UV) run --python $(PYTHON) ty check zopyx
 
 audit:
-	$(UV) audit --locked
+	# These Plone advisories describe the Plone 4/5 issue; Plone 6.2 is
+	# locked to plone-app-contenttypes 5.0.1 and has no indexed fixed version.
+	$(UV) audit --locked \
+		--ignore GHSA-w6g9-xccc-347h \
+		--ignore PYSEC-2026-459
 
 build:
 	rm -rf build dist *.egg-info
