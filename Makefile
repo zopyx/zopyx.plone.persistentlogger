@@ -53,4 +53,5 @@ package-check: build
 	$(UV) run --python $(PYTHON) --group release python -m twine check dist/*
 
 docs:
-	$(MAKE) -C docs html
+	$(UV) run --python $(PYTHON) --group docs sphinx-build \
+		-b html -d docs/build/doctrees docs/source docs/build/html

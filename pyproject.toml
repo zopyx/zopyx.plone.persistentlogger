@@ -50,6 +50,9 @@ release = [
     "build>=1.2",
     "twine>=5.1",
 ]
+docs = [
+    "Sphinx>=8.0",
+]
 
 [tool.setuptools]
 include-package-data = true
