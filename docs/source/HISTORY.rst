@@ -1,6 +1,22 @@
 Changelog
 =========
 
+0.6.0 (unreleased)
+------------------
+- Modernized packaging: Python 3.14, Plone 6.2+, uv, ruff and ty gates.
+- Added object-scoped retention policies with confirmed, reason-based
+  deletion and a management GUI (``@@persistent-log-retention``).
+- Added multi-format export (JSON, CSV, XLSX, ODS).
+- Added a permanent site-level governance journal with chained SHA-256
+  integrity digests.
+- Added site-wide audit logging of content creation and metadata edits,
+  configurable per site and per content type (``@@audit-logging-settings``).
+  Metadata changes are stored as a per-field diff in the entry details.
+- Removed the GET-based ``@@persistent-log-clear`` route; deletion is now
+  preview, confirmation, and reason based only.
+- Hardened the loguru file logger against private-API changes and cached
+  audit settings lookups per site.
+
 0.5.2 (2023-11-23)
 ------------------
 - updated to DataTables 1.13.x

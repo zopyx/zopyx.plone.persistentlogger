@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 
 from persistent import Persistent
 
+from zopyx.plone.persistentlogger import audit
 from zopyx.plone.persistentlogger.audit import (
     SNAPSHOT_KEY,
     _diff,
@@ -65,6 +66,7 @@ class AuditUnitTests(unittest.TestCase):
 
     def tearDown(self):
         self.annotation_patch.stop()
+        audit._settings_cache.clear()
 
     def test_settings_fallback_and_is_audited(self):
         with patch(
@@ -198,6 +200,25 @@ class AuditUnitTests(unittest.TestCase):
             audit_object_modified(self.context, MagicMock())
         self.assertEqual(self.annotation_store[SNAPSHOT_KEY]["title"], "Old title")
         log_event_mock.assert_not_called()
+
+    def test_settings_cache_and_invalidation(self):
+        settings = Settings()
+        settings.enabled = True
+        registry = MagicMock(forInterface=MagicMock(return_value=settings))
+        with patch(
+            "zopyx.plone.persistentlogger.audit.getUtility",
+            return_value=registry,
+        ):
+            audit._settings_cache.clear()
+            first = audit_settings()
+            second = audit_settings()
+            self.assertIs(first, second)
+            self.assertEqual(registry.forInterface.call_count, 1)
+
+            audit.audit_settings_changed()
+            audit_settings()
+            self.assertEqual(registry.forInterface.call_count, 2)
+        audit._settings_cache.clear()
 
     def test_actor_fallback_on_missing_user(self):
         settings = Settings()

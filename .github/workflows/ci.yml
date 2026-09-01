@@ -39,7 +39,7 @@ jobs:
         run: |
           uv run coverage run --branch -m zope.testrunner \
             --path . --package zopyx.plone.persistentlogger
-          uv run coverage report --fail-under=90 -m
+          uv run coverage report --fail-under=98 -m
 
       - name: Check Ruff lint
         run: uv run ruff check zopyx

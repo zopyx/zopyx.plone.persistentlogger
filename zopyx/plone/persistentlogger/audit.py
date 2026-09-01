@@ -17,6 +17,7 @@ import plone.api
 from plone.registry.interfaces import IRegistry
 from zope.annotation.interfaces import IAnnotations
 from zope.component import getUtility
+from zope.component.hooks import getSite
 from zope.interface import implementer
 
 from zopyx.plone.persistentlogger.api import log_event
@@ -37,6 +38,10 @@ _METADATA_FIELDS = (
     "uid",
 )
 
+# Registry lookups are expensive on every content event; cache the
+# resolved settings proxy per site and invalidate on record changes.
+_settings_cache: dict[int, Any] = {}
+
 
 @implementer(IAuditLoggingSettings)
 class _Settings:
@@ -47,12 +52,23 @@ class _Settings:
 
 
 def audit_settings() -> Any:
-    """Return the registry settings or a disabled fallback."""
+    """Return the registry settings or a disabled fallback (cached)."""
+    site_key = id(getSite())
+    cached = _settings_cache.get(site_key)
+    if cached is not None:
+        return cached
     try:
         registry = getUtility(IRegistry)
-        return registry.forInterface(IAuditLoggingSettings, check=False)
+        settings = registry.forInterface(IAuditLoggingSettings, check=False)
     except Exception:
         return _Settings()
+    _settings_cache[site_key] = settings
+    return settings
+
+
+def audit_settings_changed(record: Any = None, event: Any = None) -> None:
+    """Drop the cached settings when registry records change."""
+    _settings_cache.clear()
 
 
 def is_audited(obj: Any) -> bool:

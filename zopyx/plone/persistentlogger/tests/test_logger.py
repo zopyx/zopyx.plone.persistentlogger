@@ -82,6 +82,19 @@ class FileLoggerTests(unittest.TestCase):
         self.assertIsNotNone(logger)
         self.assertNotEqual(logger, file_logger.new_logger())
 
+    def test_new_logger_falls_back_when_private_api_missing(self):
+        original_import = __import__("builtins").__import__
+
+        def blocked_import(name, *args, **kwargs):
+            if name == "loguru._logger":
+                raise ImportError(name)
+            return original_import(name, *args, **kwargs)
+
+        with patch("builtins.__import__", side_effect=blocked_import):
+            logger = file_logger.new_logger()
+        self.assertIsNotNone(logger)
+        self.assertNotEqual(logger, file_logger.new_logger())
+
     def test_get_logger_configures_stdout_text_and_json_sinks(self):
         logger = MagicMock()
         with tempfile.TemporaryDirectory() as tmpdir:

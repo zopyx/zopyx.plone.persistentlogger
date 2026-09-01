@@ -6,8 +6,7 @@ import sys
 from pathlib import Path
 
 from App.config import getConfiguration
-from loguru._logger import Core as _Core
-from loguru._logger import Logger as _Logger
+from loguru import logger as _global_logger
 
 config = getConfiguration()
 client_home = Path(config.clienthome)
@@ -20,7 +19,21 @@ DEFAULT_LEVEL = "INFO"
 
 
 def new_logger():
-    """Create a new loguru.Logger instance"""
+    """Create a new loguru.Logger instance isolated from the global logger.
+
+    loguru's public API deliberately exposes only one logger, so a fresh
+    ``Logger`` with its own ``Core`` requires the private constructor.
+    ``bind()`` is used as a fallback: it derives a new instance but shares
+    the global core, which means sinks added later would be visible
+    globally. The private path keeps sinks instance-local; if a loguru
+    upgrade changes the private API, the fallback keeps this package
+    functional.
+    """
+    try:
+        from loguru._logger import Core as _Core
+        from loguru._logger import Logger as _Logger
+    except (ImportError, AttributeError):
+        return _global_logger.bind()
     return _Logger(_Core(), None, 0, False, False, False, False, True, None, {})
 
 

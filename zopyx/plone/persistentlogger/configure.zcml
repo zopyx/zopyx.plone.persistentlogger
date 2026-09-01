@@ -29,6 +29,11 @@
         handler="zopyx.plone.persistentlogger.audit.audit_object_modified"
     />
 
+    <subscriber
+        for="plone.registry.interfaces.IRecordModifiedEvent"
+        handler="zopyx.plone.persistentlogger.audit.audit_settings_changed"
+    />
+
     <genericsetup:registerProfile
         name="default"
         title="Plone persistent logger"
