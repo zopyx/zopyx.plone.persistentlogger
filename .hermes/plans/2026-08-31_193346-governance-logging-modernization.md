@@ -6,11 +6,11 @@
 
 **Architecture:** Preserve the existing adapter entry point (`IPersistentLogger(context)`) for compatibility, but move the implementation behind typed domain models, a storage repository, retention service, export service, and browser views. Keep object-local annotations as the first storage backend so existing installations remain readable; add a versioned schema and an explicit migration path before considering a separate high-volume backend. Treat deletion as a privileged, explicit, reviewable operation with a durable deletion record in a separate site-level governance journal.
 
-**Tech Stack:** Python 3.11–3.13 initially, Plone 6.2+, Zope interfaces/adapters, GenericSetup, `pytest`/`plone.app.testing`, `ruff`, `ty` (or mypy if Plone stubs prevent ty adoption), `coverage`, stdlib `json`/`csv`, `openpyxl` for XLSX, `odfpy` for ODS, setuptools initially with a planned `pyproject.toml` migration.
+**Tech Stack:** Python 3.14, Plone 6.2+, Zope interfaces/adapters, GenericSetup, `pytest`/`plone.app.testing`, `ruff`, `ty` (or mypy if Plone stubs prevent ty adoption), `coverage`, stdlib `json`/`csv`, `openpyxl` for XLSX, `odfpy` for ODS, setuptools initially with a planned `pyproject.toml` migration.
 
 ## Agreed Version 1 Requirements
 
-- Plone 6.2+ and Python 3.11–3.13 only.
+- Plone 6.2+ and Python 3.14 only.
 - Annotation storage remains the initial backend; target capacity is approximately 100,000 events per site.
 - Retention is site-configurable, initially disabled, with a default age of 365 days.
 - Manual deletion is limited to 100 entries per operation, selects the oldest eligible entries first, and processes them in one transaction.

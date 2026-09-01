@@ -19,7 +19,7 @@ Agreed requirements
 
 The following decisions are binding for the first implementation scope:
 
-* target platform: Plone 6.2+ with Python 3.11--3.13;
+* target platform: Plone 6.2+ with Python 3.14;
 * annotation storage remains the initial backend, for approximately 100,000
   events per site;
 * retention is site-configurable, initially disabled, with a default age of
