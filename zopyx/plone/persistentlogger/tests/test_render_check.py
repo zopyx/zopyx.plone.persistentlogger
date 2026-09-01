@@ -49,6 +49,22 @@ class RenderCheck(unittest.TestCase):
         self.assertIn('name="action" value="delete"', html)
         self.assertIn('name="operation_id"', html)
 
+    def test_logger_table_renders(self):
+        from AccessControl.SecurityManagement import newSecurityManager
+
+        from zopyx.plone.persistentlogger.api import log_event
+
+        portal = self.layer["portal"]
+        user = portal.acl_users.getUser("god")
+        newSecurityManager(None, user.__of__(portal.acl_users))
+        log_event(portal, "render check entry", level="warning")
+        view = portal.restrictedTraverse("@@persistent-log")
+        html = view()
+        self.assertIn("Logging", html)
+        self.assertIn("render check entry", html)
+        self.assertIn("text-bg-warning", html)
+        self.assertIn("persistent-log-export?format=json", html)
+
 
 def test_suite():
     return unittest.defaultTestLoader.loadTestsFromTestCase(RenderCheck)

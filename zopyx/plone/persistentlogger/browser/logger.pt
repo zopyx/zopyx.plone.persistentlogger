@@ -34,9 +34,60 @@
     <metal:content-core define-macro="content-core"
         tal:define="toLocalizedTime nocall:context/@@plone/toLocalizedTime">
 
-      <h2 i18n:translate="">Logging</h2>
+      <div class="d-flex justify-content-between align-items-center mb-3">
+        <h2 class="mb-0" i18n:translate="">Logging</h2>
+        <div class="btn-group">
+          <tal:manager condition="view/is_manager">
+            <a class="btn btn-outline-secondary btn-sm"
+               tal:attributes="href string:${context/absolute_url}/@@persistent-log-retention"
+               i18n:translate="">Retention</a>
+            <div class="btn-group" role="group">
+              <button type="button" class="btn btn-outline-primary btn-sm dropdown-toggle"
+                      data-bs-toggle="dropdown" aria-expanded="false" i18n:translate="">Export</button>
+              <ul class="dropdown-menu dropdown-menu-end">
+                <li><a class="dropdown-item" tal:attributes="href string:${context/absolute_url}/@@persistent-log-export?format=json">JSON</a></li>
+                <li><a class="dropdown-item" tal:attributes="href string:${context/absolute_url}/@@persistent-log-export?format=csv">CSV</a></li>
+                <li><a class="dropdown-item" tal:attributes="href string:${context/absolute_url}/@@persistent-log-export?format=xlsx">XLSX</a></li>
+                <li><a class="dropdown-item" tal:attributes="href string:${context/absolute_url}/@@persistent-log-export?format=ods">ODS</a></li>
+              </ul>
+            </div>
+          </tal:manager>
+          <a class="btn btn-outline-secondary btn-sm"
+             tal:attributes="href string:${context/absolute_url}/@@logger-entries"
+             i18n:translate="">JSON</a>
+        </div>
+      </div>
 
-      <table class="datatable table table-striped" id="logging" style="width: 100%">
+      <div class="row g-3 mb-3">
+        <div class="col-md-4">
+          <div class="card">
+            <div class="card-body py-2 d-flex justify-content-between align-items-center">
+              <span class="text-muted small" i18n:translate="">Entries</span>
+              <span class="badge text-bg-primary rounded-pill"><tal:count tal:content="view/count" /></span>
+            </div>
+          </div>
+        </div>
+        <div class="col-md-4">
+          <div class="card">
+            <div class="card-body py-2 d-flex justify-content-between align-items-center">
+              <span class="text-muted small" i18n:translate="">Last entry</span>
+              <span class="small"
+                    tal:content="python: context.toLocalizedTime(view.last_date(), True) if view.last_date() else '—'" />
+            </div>
+          </div>
+        </div>
+        <div class="col-md-4">
+          <div class="card">
+            <div class="card-body py-2 d-flex justify-content-between align-items-center">
+              <span class="text-muted small" i18n:translate="">Last user</span>
+              <span class="badge text-bg-light border rounded-pill"
+                    tal:content="python: view.last_user() or '—'" />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <table class="datatable table table-hover table-sm align-middle" id="logging" style="width: 100%">
           <thead>
               <tr>
                   <th class="field-date" i18n:translate="">Date</th>
@@ -45,36 +96,42 @@
                   <th class="field-info_url" i18n:translate="">Info</th>
                   <th class="field-comment" i18n:translate="">Comment</th>
               </tr>
-          </thead>              
+          </thead>
 
           <tbody>
               <tr tal:repeat="entry python: view.entries()">
-                  <td class="field-date"
+                  <td class="field-date text-nowrap"
                       tal:content="python: context.toLocalizedTime(entry['date'], True)"
                       tal:attributes="data-sort python: entry['date'].isoformat()"/>
-                  <td class="field-level" tal:content="entry/level"/>
+                  <td class="field-level">
+                      <span class="badge"
+                            tal:attributes="class python: 'badge ' + view.level_class(entry['level'])"
+                            tal:content="entry/level"/>
+                  </td>
                   <td class="field-user" tal:content="entry/username"/>
                   <td class="field-info_url" tal:define="info_url entry/info_url|string:">
                       <tal:if condition="info_url">
                           <a tal:condition="python: info_url.startswith('http')"
                              tal:attributes="href info_url"
                              i18n:translate="">Info
-                         </a>
+                        </a>
                           <a tal:condition="not: python: info_url.startswith('http')"
                              tal:attributes="href string:$portal_url/$info_url"
                              i18n:translate="">Info
-                         </a>
-                      </tal:if>                     
-                  </td>                     
+                        </a>
+                      </tal:if>
+                  </td>
                   <td class="field-comment">
                       <span tal:content="structure entry/comment"/>
                       <tal:if condition="entry/details">
-                        [<a class="show-details" i18n:translate="">Details</a>]
+                        <button type="button" class="btn btn-link btn-sm p-0 ms-2 show-details"
+                                i18n:translate="">Details</button>
                         <pre class="details-data"
-                             style="display: none" 
+                             style="display: none"
                              tal:content="entry/details"/>
                       </tal:if>
-                  </tr>
+                  </td>
+              </tr>
           </tbody>
       </table>
 
@@ -82,7 +139,6 @@
       <script type="text/javascript" tal:content="string: PORTAL_URL = '$portal_url'"></script>
 
       <script type="text/javascript">
-
 
         $(document).ready(function() {
 
@@ -134,4 +190,3 @@
 
 </body>
 </html>
-

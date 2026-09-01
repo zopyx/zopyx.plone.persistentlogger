@@ -177,6 +177,39 @@ class BrowserLoggerTests(unittest.TestCase):
         self.assertEqual(rendered, "rendered")
         self.context.plone_utils.addPortalMessage.assert_called_once()
 
+    def test_stats_and_level_class(self):
+        adapter = MagicMock()
+        adapter.entries = [
+            {
+                "date": datetime.datetime(2026, 1, 2, 3, 4, 5),
+                "comment": "new",
+                "level": "warning",
+            },
+            {
+                "date": datetime.datetime(2026, 1, 1, 3, 4, 5),
+                "comment": "old",
+                "level": "fatal",
+            },
+        ]
+        adapter.get_last_user.return_value = "god"
+        adapter.get_last_date.return_value = datetime.datetime(2026, 1, 2, 3, 4, 5)
+        self.context.portal_membership = MagicMock(
+            checkPermission=MagicMock(return_value=True)
+        )
+        with patch(
+            "zopyx.plone.persistentlogger.browser.logger.IPersistentLogger",
+            return_value=adapter,
+        ):
+            self.assertEqual(self.view.count(), 2)
+            self.assertEqual(self.view.last_user(), "god")
+            self.assertIsNotNone(self.view.last_date())
+            self.assertTrue(self.view.is_manager())
+            self.assertEqual(self.view.level_class("warning"), "text-bg-warning")
+            self.assertEqual(self.view.level_class("critical"), "text-bg-danger")
+            self.assertEqual(self.view.level_class("unknown"), "text-bg-light")
+            self.context.portal_membership.checkPermission.return_value = False
+            self.assertFalse(self.view.is_manager())
+
 
 def test_suite():
     from unittest import TestLoader, TestSuite

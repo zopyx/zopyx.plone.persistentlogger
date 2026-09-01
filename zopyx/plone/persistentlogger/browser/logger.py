@@ -58,5 +58,30 @@ class Logging(BrowserView):
             result.append(d)
         return json.dumps(result[::-1], default=json_serial)
 
+    def count(self):
+        return len(self.entries())
+
+    def last_user(self):
+        return IPersistentLogger(self.context).get_last_user()
+
+    def last_date(self):
+        return IPersistentLogger(self.context).get_last_date()
+
+    def is_manager(self):
+        return self.context.portal_membership.checkPermission(
+            "cmf.ManagePortal", self.context
+        )
+
+    def level_class(self, level):
+        return {
+            "debug": "text-bg-secondary",
+            "info": "text-bg-info",
+            "warning": "text-bg-warning",
+            "warn": "text-bg-warning",
+            "error": "text-bg-danger",
+            "fatal": "text-bg-danger",
+            "critical": "text-bg-danger",
+        }.get(str(level), "text-bg-light")
+
     def __call__(self):
         return self.template()
