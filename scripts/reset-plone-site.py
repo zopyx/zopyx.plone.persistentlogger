@@ -17,6 +17,13 @@ portal = addPloneSite(
     site_id,
     title="Plone",
     profile_id="Products.CMFPlone:plone",
+    # Mirror Products.CMFPlone.browser.admin.AddPloneSite.default_extension_profiles:
+    # the base profile has no dependencies, so the theme and the default
+    # content types must be installed explicitly.
+    extension_ids=(
+        "plone.app.contenttypes:default",
+        "plonetheme.barceloneta:default",
+    ),
     default_language="de",
     portal_timezone="Europe/Berlin",
 )

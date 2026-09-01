@@ -1,0 +1,129 @@
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en"
+      xmlns:tal="http://xml.zope.org/namespaces/tal"
+      xmlns:metal="http://xml.zope.org/namespaces/metal"
+      xmlns:i18n="http://xml.zope.org/namespaces/i18n"
+      lang="en"
+      metal:use-macro="context/main_template/macros/master"
+      i18n:domain="zopyx.plone.persistentlogger">
+<body>
+
+    <metal:slot fill-slot="style_slot">
+        <link rel="stylesheet" type="text/css" tal:attributes="href string:$portal_url/++resource++zopyx.plone.persistentlogger/styles.css" />
+    </metal:slot>
+
+<metal:main fill-slot="content-core">
+    <metal:content-core define-macro="content-core"
+        tal:define="toLocalizedTime nocall:context/@@plone/toLocalizedTime">
+
+      <h2 i18n:translate="">Retention</h2>
+
+      <tal:msgs repeat="msg view/messages">
+        <div class="alert"
+             tal:attributes="class python: 'alert alert-info' if msg[0] == 'info' else 'alert alert-danger'"
+             tal:content="python: msg[1]" />
+      </tal:msgs>
+
+      <div class="row">
+        <div class="col-md-6">
+
+          <div class="card mb-4">
+            <div class="card-header" i18n:translate="">Retention policy</div>
+            <div class="card-body">
+              <form method="post" tal:attributes="action string:${context/absolute_url}/@@persistent-log-retention">
+                <input type="hidden" name="action" value="save-policy" />
+                <tal:block replace="structure context/@@authenticator/authenticator" />
+
+                <div class="form-check mb-3">
+                  <input class="form-check-input" type="checkbox" name="enabled" id="retention-enabled" value="1"
+                         tal:attributes="checked python: 'checked' if view.policy.enabled else None" />
+                  <label class="form-check-label" for="retention-enabled" i18n:translate="">Retention enabled</label>
+                </div>
+
+                <div class="mb-3">
+                  <label class="form-label" for="retention-older-than" i18n:translate="">Delete entries older than (days)</label>
+                  <input class="form-control" type="number" name="older_than_days" id="retention-older-than"
+                         min="1" required="required"
+                         tal:attributes="value python: view.policy.older_than_days" />
+                </div>
+
+                <div class="mb-3">
+                  <label class="form-label" for="retention-max-entries" i18n:translate="">Maximum entries per operation</label>
+                  <input class="form-control" type="number" name="max_entries" id="retention-max-entries"
+                         min="1" max="100" required="required"
+                         tal:attributes="value python: view.policy.max_entries" />
+                </div>
+
+                <button type="submit" class="btn btn-primary" i18n:translate="">Save policy</button>
+              </form>
+            </div>
+          </div>
+
+        </div>
+
+        <div class="col-md-6">
+
+          <div class="card mb-4">
+            <div class="card-header" i18n:translate="">Deletion preview</div>
+            <div class="card-body">
+              <form method="post" tal:attributes="action string:${context/absolute_url}/@@persistent-log-retention">
+                <input type="hidden" name="action" value="preview" />
+                <tal:block replace="structure context/@@authenticator/authenticator" />
+                <button type="submit" class="btn btn-secondary" i18n:translate="">Show deletable entries</button>
+              </form>
+
+              <tal:preview condition="view/preview">
+                <hr />
+                <p i18n:translate="">
+                  <strong><tal:count tal:content="python: len(view.preview.event_ids)"/></strong>
+                  entries are eligible for deletion.
+                </p>
+
+                <table class="table table-striped table-sm">
+                  <thead>
+                    <tr>
+                      <th i18n:translate="">Date</th>
+                      <th i18n:translate="">Level</th>
+                      <th i18n:translate="">User</th>
+                      <th i18n:translate="">Comment</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr tal:repeat="entry view/preview_events">
+                      <td class="field-date"
+                          tal:content="python: context.toLocalizedTime(entry['date'], True)" />
+                      <td tal:content="entry/level" />
+                      <td tal:content="entry/username" />
+                      <td tal:content="entry/comment" />
+                    </tr>
+                  </tbody>
+                </table>
+
+                <form method="post" tal:attributes="action string:${context/absolute_url}/@@persistent-log-retention">
+                  <input type="hidden" name="action" value="delete" />
+                  <input type="hidden" name="operation_id"
+                         tal:attributes="value python: str(view.preview.operation_id)" />
+                  <tal:block replace="structure context/@@authenticator/authenticator" />
+
+                  <div class="mb-3">
+                    <label class="form-label" for="retention-reason" i18n:translate="">Reason (at least 10 characters)</label>
+                    <textarea class="form-control" name="reason" id="retention-reason" rows="2" required="required"></textarea>
+                  </div>
+
+                  <button type="submit" class="btn btn-danger" i18n:translate="">Delete these entries</button>
+                </form>
+              </tal:preview>
+
+              <tal:nopreview condition="not: view/preview">
+                <p class="text-muted mt-3" i18n:translate="">No preview generated yet.</p>
+              </tal:nopreview>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+  </metal:content-core>
+</metal:main>
+
+</body>
+</html>

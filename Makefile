@@ -10,7 +10,7 @@ dev:
 	./scripts/dev-uv.sh
 
 reset-site:
-	@if pgrep -f 'runwsgi.*instance/etc/zope.ini' >/dev/null; then \
+	@if pgrep -f '[r]unwsgi.*instance/etc/zope.ini' >/dev/null; then \
 		printf '%s\n' 'error: stop make dev before resetting the Plone site' >&2; \
 		exit 1; \
 	fi
