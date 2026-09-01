@@ -46,24 +46,111 @@ Requirements
 * ``plone.api``
 * ``loguru``
 
-Installation for Plone
-----------------------
+Installation for Plone with uv
+------------------------------
 
-The package is installed as a normal Python distribution in the Plone
-instance environment. For a project using ``uv``::
+This package is a Plone add-on. ``uv`` manages the Python environment and
+installs the package; it does not replace Plone site creation or instance
+configuration. Buildout is not required.
 
+Existing uv-managed Plone project
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+From the root of an existing Plone application project::
+
+    uv add "Products.CMFPlone>=6.2,<7"
+    uv add "zopyx.plone.persistentlogger>=0.5.2"
+    uv sync
+
+For a reproducible deployment, commit the resulting ``pyproject.toml`` and
+``uv.lock`` and install only from the lockfile on the deployment host::
+
+    uv sync --locked --no-dev
+
+If the application uses development and test dependencies, use::
+
+    uv sync --locked --all-groups
+
+The package registers itself through the ``z3c.autoinclude.plugin`` entry
+point. After the Plone site has been created, verify that the add-on is
+available and apply the GenericSetup profile if the application does not
+install it automatically::
+
+    uv run python -c "import zopyx.plone.persistentlogger"
+    zopyx.plone.persistentlogger:default
+
+The last line is the GenericSetup profile identifier, not a shell command. It
+can be applied through Plone's Add-ons control panel or the application's
+profile-installation code.
+
+New uv project
+~~~~~~~~~~~~~~
+
+A minimal new project can be initialized with::
+
+    mkdir my-plone-site
+    cd my-plone-site
+    uv init --python 3.14
+    uv add "Products.CMFPlone>=6.2,<7"
     uv add zopyx.plone.persistentlogger
     uv sync
 
-For a constrained Plone deployment, use the project constraint file approved
-for that deployment and then install the locked environment. The package
-registers itself through the ``z3c.autoinclude.plugin`` entry point. A Plone
-site can also apply the GenericSetup profile explicitly::
+The Plone application still needs its normal WSGI/instance configuration and a
+site creation step. Keep those application-specific files in the host project;
+do not put site data or secrets into this add-on repository.
 
-    zopyx.plone.persistentlogger:default
+Local development of this repository
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-The package data includes ZCML, Page Templates, GenericSetup profiles, and
-browser resources. The wheel is validated in CI with ``twine check``.
+Clone the repository and run the supplied setup script::
+
+    git clone https://github.com/zopyx/zopyx.plone.persistentlogger.git
+    cd zopyx.plone.persistentlogger
+    ./scripts/setup-uv.sh
+
+The script performs these steps:
+
+#. verifies that ``uv`` is installed;
+#. installs or selects Python 3.14;
+#. creates ``.venv`` with Python 3.14;
+#. installs the locked Plone 6.2+ test environment and development tools;
+#. imports both ``Products.CMFPlone`` and this package as a smoke test; and
+#. prints the command used to run the Plone test layer.
+
+The equivalent commands, useful in CI or when customizing the environment,
+are::
+
+    uv python install 3.14
+    uv venv --python 3.14 .venv
+    uv sync --locked --all-groups
+    uv run zope-testrunner --path . --package zopyx.plone.persistentlogger
+
+Use the repository Makefile for the complete quality suite::
+
+    make install
+    make test
+    make coverage
+    make lint
+    make format-check
+    make typecheck
+    make audit
+    make package-check
+
+No ``bin/buildout``, ``bootstrap.py``, or legacy buildout configuration is
+required for the uv workflow. The old buildout files remain only as historical
+migration material and are not used by CI.
+
+Package data and verification
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The wheel includes the package's ZCML, Page Templates, GenericSetup profiles,
+and browser resources. Validate a locally built distribution with::
+
+    make package-check
+
+This cleans stale output, builds both an sdist and a wheel with ``uv`` and
+``python -m build``, and runs ``twine check``. The GitHub Actions build repeats
+the check on Ubuntu with Python 3.14.
 
 Python API
 ----------
