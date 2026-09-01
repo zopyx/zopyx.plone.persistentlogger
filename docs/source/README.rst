@@ -22,17 +22,20 @@ Current functionality:
 
 * attach a persistent logger to an arbitrary Plone object;
 * record comments, severity, user, optional information URL, and details;
-* preserve structured ``details_raw`` data for legacy callers;
+* preserve and migrate legacy annotation records;
+* compute chained SHA-256 integrity digests;
 * find entries by UUID;
+* preview and execute object-scoped retention deletion;
+* record policy and deletion actions in a separate governance journal;
+* export logs as JSON, CSV, XLSX, or ODS;
 * expose a searchable and sortable browser table; and
-* return the current entries as JSON through a browser view.
+* provide manager-protected browser views for export and retention operations.
 
-Modernization in progress:
+Modernization status:
 
 * Python 3.14 and Plone 6.2+ packaging with ``uv``;
 * type checking with Astral ``ty`` and formatting/linting with ``ruff``;
 * branch coverage enforced at 98% or higher;
-* JSON, CSV, XLSX, and ODS export services;
 * object-scoped retention policies and explicitly confirmed deletion;
 * a separate, permanent site-level governance journal;
 * hash-chain integrity metadata for log and governance events; and
@@ -125,6 +128,23 @@ are::
     uv sync --locked --all-groups
     uv run zope-testrunner --path . --package zopyx.plone.persistentlogger
 
+The repository also provides a local foreground instance workflow::
+
+    make dev
+
+This creates a local Zope instance on first use and starts it at
+``http://127.0.0.1:8080``. Use ``Ctrl-C`` to stop it. To deliberately remove and
+recreate the local ``/Plone`` site with the add-on profile installed, stop the
+server first and run::
+
+    make reset-site
+    make dev
+
+The reset target is destructive and applies only to the local development
+instance. ``make dev-reset`` combines both commands. The local development
+password can be overridden with ``PLONE_INITIAL_PASSWORD``; it is never a
+production credential.
+
 Use the repository Makefile for the complete quality suite::
 
     make install
@@ -207,19 +227,27 @@ For an object at ``http://host/path/to/object`` the current views are:
 ``@@logger-entries``
     JSON representation of the entries.
 
+``@@persistent-log-export``
+    Export des objektbezogenen Logs. Das gewünschte Format wird mit
+    ``format=json``, ``format=csv``, ``format=xlsx`` oder ``format=ods``
+    gewählt.
+
+``@@persistent-log-retention-preview``
+    Erzeugt eine serverseitige Preview der ältesten löschbaren Einträge.
+
+``@@persistent-log-retention-delete``
+    Führt eine bestätigte, CSRF-geschützte Löschung per POST aus.
+
 ``@@logger-demo``
-    Development/demo data generator, available through the demo browser layer.
+    Entwicklungs-/Demo-Datengenerator, verfügbar über den Demo-Browser-Layer.
 
-The legacy package also exposes ``@@persistent-log-clear``. It is being
-removed from the modern governance workflow because destructive operations
-must use an explicit, permission-protected POST with confirmation and a
-reason. Do not expose the legacy clear action in a production governance
-installation without reviewing the current security behavior.
+Die frühere GET-basierte ``@@persistent-log-clear``-Route wurde entfernt. Das
+Löschen erfolgt ausschließlich über Preview, Bestätigung, Begründung und die
+begrenzte Retention-Operation.
 
-All current browser pages use the ``Modify portal content`` permission. The
-modernization will introduce separate permissions for reading, exporting,
-retention configuration, deletion, and governance-journal access, initially
-restricted to the Plone ``Manager`` role.
+The existing log table uses ``Modify portal content``. The new export and
+retention administration routes use ``Manage portal`` and are restricted to
+Plone Managers.
 
 Data model and storage
 ----------------------

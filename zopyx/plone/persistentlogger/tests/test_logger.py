@@ -61,6 +61,16 @@ class BasicTests(TestBase):
             details="plain text",
         )
 
+    def test_legacy_level_filters_and_annotations(self):
+        logger = IPersistentLogger(self.portal)
+        logger.annotations
+        logger.log("custom", level="custom", username="explicit")
+        self.assertEqual(logger.entries[0]["level"], "custom")
+        entries = type(logger).entries.fget(logger, min_datetime=datetime.datetime.min)
+        self.assertEqual(len(entries), 1)
+        entries = type(logger).entries.fget(logger, max_datetime=datetime.datetime.max)
+        self.assertEqual(len(entries), 1)
+
     def test_zz_login_helper(self):
         self.login("god")
         self.assertIsNotNone(self.portal.acl_users.getUser("god"))
@@ -135,27 +145,24 @@ class BrowserLoggerTests(unittest.TestCase):
         self.assertIn('"comment": "new"', payload)
         self.assertIn('"date_str": "02.01.2026 03:04:05"', payload)
 
-    def test_demo_clear_and_call(self):
+    def test_demo_and_call(self):
         adapter = MagicMock()
         self.context.plone_utils = MagicMock()
-        self.request.response = MagicMock()
         self.view.template = MagicMock(return_value="rendered")
         with (
             patch(
                 "zopyx.plone.persistentlogger.browser.logger.IPersistentLogger",
                 return_value=adapter,
             ),
+            patch("zopyx.plone.persistentlogger.browser.logger.CheckAuthenticator"),
             patch("time.sleep"),
         ):
             self.view.demo()
-            redirect = self.view.log_clear()
             rendered = self.view()
 
-        self.assertEqual(adapter.log.call_count, 21)
-        adapter.clear.assert_called_once_with()
-        self.assertEqual(redirect, self.request.response.redirect.return_value)
+        self.assertEqual(adapter.log.call_count, 20)
         self.assertEqual(rendered, "rendered")
-        self.context.plone_utils.addPortalMessage.assert_called()
+        self.context.plone_utils.addPortalMessage.assert_called_once()
 
 
 def test_suite():

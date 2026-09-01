@@ -1,10 +1,24 @@
 PYTHON ?= 3.14
 UV ?= uv
 
-.PHONY: install test coverage lint format-check typecheck audit build package-check docs
+.PHONY: install dev reset-site dev-reset test coverage lint format-check typecheck audit build package-check docs
 
 install:
 	$(UV) sync --python $(PYTHON)
+
+dev:
+	./scripts/dev-uv.sh
+
+reset-site:
+	@if pgrep -f 'runwsgi.*instance/etc/zope.ini' >/dev/null; then \
+		printf '%s\n' 'error: stop make dev before resetting the Plone site' >&2; \
+		exit 1; \
+	fi
+	@rm -f instance/var/filestorage/Data.fs.lock
+	$(UV) run --python $(PYTHON) zconsole run instance/etc/zope.conf \
+		scripts/reset-plone-site.py
+
+dev-reset: reset-site dev
 
 test:
 	$(UV) run --python $(PYTHON) zope-testrunner \

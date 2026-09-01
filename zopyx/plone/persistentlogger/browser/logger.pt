@@ -78,9 +78,6 @@
           </tbody>
       </table>
 
-      <a tal:attributes="href string:${context/absolute_url}/@@persistent-log-clear" 
-          i18n:translate="">Clear log entries</a>
-
       <script type="text/javascript" tal:content="string: URL = '${context/absolute_url}'"></script>
       <script type="text/javascript" tal:content="string: PORTAL_URL = '$portal_url'"></script>
 

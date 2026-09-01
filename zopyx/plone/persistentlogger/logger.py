@@ -3,15 +3,15 @@
 # (C) 2015,  Andreas Jung, www.zopyx.com, Tuebingen, Germany
 ################################################################
 
-import datetime
-import pprint
-import uuid
 
 import plone.api
 import zope.interface
 from BTrees.OOBTree import OOBTree
 from DateTime import DateTime
 from zope.annotation.interfaces import IAnnotations
+
+from .models import LogEvent, Severity
+from .repository import AnnotationRepository, _event_date
 
 LOG_KEY = "zopyx.plone.persistentlogger.connector.log"
 LOG_LAST_USER = "zopyx.plone.persistentlogger.connector.lastuser"
@@ -33,13 +33,20 @@ class PersistentLoggerAdapter:
 
     @property
     def entries(self, min_datetime=None, max_datetime=None):
-        return self.annotations.values(min_datetime, max_datetime)
+        entries = AnnotationRepository(self.context).events()
+        if min_datetime is not None:
+            min_datetime = _event_date({"date": min_datetime})
+            entries = [entry for entry in entries if _event_date(entry) >= min_datetime]
+        if max_datetime is not None:
+            max_datetime = _event_date({"date": max_datetime})
+            entries = [entry for entry in entries if _event_date(entry) <= max_datetime]
+        return entries
 
     def entry_by_uuid(self, target_uuid):
-        """Find a logger entry by uuid"""
-        for entry in self.entries:
-            if target_uuid == entry.get("uuid"):
-                return entry
+        """Find a logger entry by UUID."""
+        entry = AnnotationRepository(self.context).get(str(target_uuid))
+        if entry is not None:
+            return entry
         raise ValueError(f"No log entry with UUID {target_uuid} found")
 
     def __len__(self):
@@ -53,31 +60,25 @@ class PersistentLoggerAdapter:
         return all_annotations[LOG_KEY]
 
     def log(self, comment, level="info", username=None, info_url=None, details=None):
-        """Add a log entry"""
-        annotations = self.annotations
-        details_raw = None
-        if details:
-            if not isinstance(details, str):
-                details_raw = details
-                details = pprint.pformat(details)
-        if not username:
-            username = plone.api.user.get_current().getUserName()
-        d = dict(
-            date=datetime.datetime.now(datetime.UTC),
-            username=username,
-            level=level,
+        """Add a log entry using the versioned repository schema."""
+        current_user = plone.api.user.get_current().getUserName()
+        username = username or current_user
+        try:
+            severity = Severity(level)
+        except ValueError:
+            # Preserve legacy custom levels while new callers use Severity.
+            severity = level
+        event = LogEvent(
+            comment=comment,
+            severity=severity,
+            actor=username,
             info_url=info_url,
             details=details,
-            details_raw=details_raw,
-            uuid=str(uuid.uuid1()),
-            comment=comment,
         )
-        annotations[d["date"]] = d
-        annotations._p_changed = 1
-        IAnnotations(self.context)[LOG_LAST_USER] = (
-            plone.api.user.get_current().getUserName()
-        )
-        IAnnotations(self.context)[LOG_LAST_DATE] = datetime.datetime.now(datetime.UTC)
+        AnnotationRepository(self.context).append(event)
+        annotations = IAnnotations(self.context)
+        annotations[LOG_LAST_USER] = current_user
+        annotations[LOG_LAST_DATE] = event.created_at
         self.context.setModificationDate(DateTime())
 
     def get_last_user(self):

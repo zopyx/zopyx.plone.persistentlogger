@@ -15,4 +15,7 @@ coverage
 report
 include
 lib
+instance.yaml
+instance/
+.venv/
 

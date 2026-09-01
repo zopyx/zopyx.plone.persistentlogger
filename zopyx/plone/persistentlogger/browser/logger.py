@@ -7,10 +7,9 @@ import datetime
 import json
 import operator
 
-from plone.protect.interfaces import IDisableCSRFProtection
+from plone.protect import CheckAuthenticator
 from Products.Five.browser import BrowserView
 from Products.Five.browser.pagetemplatefile import ViewPageTemplateFile
-from zope.interface import alsoProvides
 
 from zopyx.plone.persistentlogger.logger import IPersistentLogger
 
@@ -33,7 +32,7 @@ class Logging(BrowserView):
         import random
         import time
 
-        alsoProvides(self.request, IDisableCSRFProtection)
+        CheckAuthenticator(self.request)
         logger = IPersistentLogger(self.context)
         for i in range(20):
             text = f"some text üöä {i}"
@@ -47,7 +46,6 @@ class Logging(BrowserView):
         )
 
     def entries(self):
-        alsoProvides(self.request, IDisableCSRFProtection)
         result = list(IPersistentLogger(self.context).entries)
         result = sorted(result, key=operator.itemgetter("date"))
         return result
@@ -59,18 +57,6 @@ class Logging(BrowserView):
             d["date_str"] = d["date"].strftime(date_fmt)
             result.append(d)
         return json.dumps(result[::-1], default=json_serial)
-
-    def log_clear(self):
-        """Clear persistent log"""
-        alsoProvides(self.request, IDisableCSRFProtection)
-        logger = IPersistentLogger(self.context)
-        logger.clear()
-        msg = "Log entries cleared"
-        logger.log(msg, "info")
-        self.context.plone_utils.addPortalMessage(msg)
-        return self.request.response.redirect(
-            f"{self.context.absolute_url()}/persistent-log"
-        )
 
     def __call__(self):
         return self.template()
