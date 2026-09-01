@@ -38,7 +38,9 @@ Modernization status:
 * branch coverage enforced at 98% or higher;
 * object-scoped retention policies and explicitly confirmed deletion;
 * a separate, permanent site-level governance journal;
-* hash-chain integrity metadata for log and governance events; and
+* hash-chain integrity metadata for log and governance events;
+* site-wide audit logging of content creation and metadata edits
+  (control panel, per content type, metadata diff); and
 * GitHub Actions CI plus manually triggered PyPI/TestPyPI Trusted Publishing.
 
 Requirements
@@ -248,6 +250,24 @@ begrenzte Retention-Operation.
 The existing log table uses ``Modify portal content``. The new export and
 retention administration routes use ``Manage portal`` and are restricted to
 Plone Managers.
+
+Audit logging
+~~~~~~~~~~~~~
+
+Site-wide audit logging records content creation and metadata changes as
+``create`` and ``edit`` entries in the object-local persistent log. Enable it
+through the ``Audit logging`` control panel (Site Setup) per Plone site:
+
+* ``enabled`` turns audit logging on for the site; and
+* ``content_types`` restricts auditing to selected content types
+  (empty means all types).
+
+On creation the entry contains the full metadata snapshot. On modification a
+diff with per-field ``old``/``new`` values is stored in the entry ``details``;
+the metadata fields covered are title, description, subject, language,
+effective and expiration dates, creators, id, portal type, and UID. Objects
+created before audit logging was enabled receive a baseline snapshot on their
+first modification without an audit entry.
 
 Data model and storage
 ----------------------

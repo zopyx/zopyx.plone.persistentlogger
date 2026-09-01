@@ -56,6 +56,20 @@
         permission="cmf.ManagePortal"
     />
 
+    <browser:page
+        for="*"
+        name="persistent-log-retention"
+        class=".retention.RetentionGUI"
+        permission="cmf.ManagePortal"
+    />
+
+    <browser:page
+        for="zope.interface.Interface"
+        name="audit-logging-settings"
+        class=".settings.AuditLoggingSettingsView"
+        permission="cmf.ManagePortal"
+    />
+
     <browser:resourceDirectory
         name="zopyx.plone.persistentlogger"
         directory="resources"

@@ -17,6 +17,18 @@
         for="*"
     />
 
+    <subscriber
+        for="Products.CMFCore.interfaces.IContentish
+             zope.lifecycleevent.interfaces.IObjectAddedEvent"
+        handler="zopyx.plone.persistentlogger.audit.audit_object_created"
+    />
+
+    <subscriber
+        for="Products.CMFCore.interfaces.IContentish
+             zope.lifecycleevent.interfaces.IObjectModifiedEvent"
+        handler="zopyx.plone.persistentlogger.audit.audit_object_modified"
+    />
+
     <genericsetup:registerProfile
         name="default"
         title="Plone persistent logger"
