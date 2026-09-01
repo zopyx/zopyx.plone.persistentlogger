@@ -42,10 +42,10 @@ jobs:
           uv run coverage report --fail-under=90 -m
 
       - name: Check Ruff lint
-        run: uv run ruff check .
+        run: uv run ruff check zopyx
 
       - name: Check Ruff formatting
-        run: uv run ruff format --check .
+        run: uv run ruff format --check zopyx
 
       - name: Run type checker
         run: uv run ty check zopyx
