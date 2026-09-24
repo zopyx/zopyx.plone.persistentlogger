@@ -18,6 +18,8 @@ Differences to the ZODB backend are deliberate and documented:
 
 from __future__ import annotations
 
+import atexit
+import os
 from datetime import UTC, datetime
 from threading import Lock
 from typing import Any
@@ -38,7 +40,7 @@ from sqlalchemy import (
     not_,
     or_,
 )
-from sqlalchemy.engine import Engine
+from sqlalchemy.engine import Engine, make_url
 from sqlmodel import Field, Session, SQLModel, create_engine, select, text
 
 from ..models import DeletionPreview, DeletionResult, LogEvent, RetentionPolicy, utc_now
@@ -84,12 +86,23 @@ __all__ = [
     "check_connection",
     "dispose_engines",
     "get_engine",
+    "register_engine_lifecycle",
     "order_by_spec",
     "quick_expression",
     "sql_condition_tree",
 ]
 
 TABLE_PREFIX = "persistentlogger_"
+
+POOL_SIZE_ENVIRONMENT_VARIABLE = "ZOPYX_PERSISTENTLOGGER_POOL_SIZE"
+POOL_MAX_OVERFLOW_ENVIRONMENT_VARIABLE = "ZOPYX_PERSISTENTLOGGER_POOL_MAX_OVERFLOW"
+POOL_TIMEOUT_ENVIRONMENT_VARIABLE = "ZOPYX_PERSISTENTLOGGER_POOL_TIMEOUT"
+POOL_RECYCLE_ENVIRONMENT_VARIABLE = "ZOPYX_PERSISTENTLOGGER_POOL_RECYCLE"
+
+DEFAULT_POOL_SIZE = 5
+DEFAULT_POOL_MAX_OVERFLOW = 10
+DEFAULT_POOL_TIMEOUT = 30
+DEFAULT_POOL_RECYCLE = 1800
 
 #: Alias kept for callers that used the SQLAlchemy declarative base name.
 Base = SQLModel
@@ -207,6 +220,59 @@ SCHEMA_VERSION = 2
 
 _engines: dict[str, Engine] = {}
 _engines_lock = Lock()
+_lifecycle_registered = False
+
+
+def _pool_value(name: str, default: int) -> int:
+    """Read and validate one integer pool setting from the environment."""
+    raw_value = os.environ.get(name, str(default)).strip()
+    try:
+        value = int(raw_value)
+    except ValueError as exc:
+        raise StorageConfigurationError(
+            f"{name} must be an integer, got {raw_value!r}"
+        ) from exc
+    if value < 0:
+        raise StorageConfigurationError(f"{name} must not be negative")
+    return value
+
+
+def _pool_options(database_url: str) -> dict[str, int]:
+    """Return production pool settings, excluding SQLite's special pools."""
+    if make_url(database_url).get_backend_name() == "sqlite":
+        return {}
+    return {
+        "pool_size": _pool_value(POOL_SIZE_ENVIRONMENT_VARIABLE, DEFAULT_POOL_SIZE),
+        "max_overflow": _pool_value(
+            POOL_MAX_OVERFLOW_ENVIRONMENT_VARIABLE, DEFAULT_POOL_MAX_OVERFLOW
+        ),
+        "pool_timeout": _pool_value(
+            POOL_TIMEOUT_ENVIRONMENT_VARIABLE, DEFAULT_POOL_TIMEOUT
+        ),
+        "pool_recycle": _pool_value(
+            POOL_RECYCLE_ENVIRONMENT_VARIABLE, DEFAULT_POOL_RECYCLE
+        ),
+    }
+
+
+def register_engine_lifecycle(event: Any = None) -> None:
+    """Register one process-shutdown callback for cached engine disposal."""
+    del event
+    global _lifecycle_registered
+    with _engines_lock:
+        if _lifecycle_registered:
+            return
+        atexit.register(dispose_engines)
+        _lifecycle_registered = True
+
+
+def _schema_error(version: Any) -> StorageConfigurationError:
+    """Return the stable error used for unsupported schema state."""
+    return StorageConfigurationError(
+        "incompatible persistent logger database schema: found version "
+        f"{version!r}, expected version {SCHEMA_VERSION}; upgrade the "
+        "persistent logger package or migrate the database before starting"
+    )
 
 
 def _upgrade_event_sequence_column(engine: Engine) -> None:
@@ -225,23 +291,70 @@ def _upgrade_event_sequence_column(engine: Engine) -> None:
         )
 
 
+def _upgrade_preview_expiry_column(engine: Engine) -> None:
+    """Add the preview expiry column and its index to older installations."""
+    columns = {
+        column["name"]
+        for column in inspect(engine).get_columns(str(PreviewRecord.__tablename__))
+    }
+    if "expires_at" not in columns:
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    f'ALTER TABLE "{PreviewRecord.__tablename__}" '
+                    "ADD COLUMN expires_at DATETIME"
+                )
+            )
+    preview_table = SQLModel.metadata.tables[str(PreviewRecord.__tablename__)]
+    with engine.begin() as connection:
+        for index in preview_table.indexes:
+            index.create(connection, checkfirst=True)
+
+
+def _normalize_schema_marker(engine: Engine) -> None:
+    """Normalize the pre-release ``key=main`` marker to ``name=audit``."""
+    table_name = str(SchemaVersionRecord.__tablename__)
+    columns = {column["name"] for column in inspect(engine).get_columns(table_name)}
+    if "key" in columns and "name" not in columns:
+        with engine.begin() as connection:
+            connection.execute(
+                text(f'ALTER TABLE "{table_name}" RENAME COLUMN "key" TO "name"')
+            )
+        columns.remove("key")
+        columns.add("name")
+    if "name" not in columns or "version" not in columns:
+        raise _schema_error(sorted(columns))
+    with Session(engine) as session, session.begin():
+        markers = session.exec(select(SchemaVersionRecord)).all()
+        if len(markers) > 1:
+            raise _schema_error([(marker.name, marker.version) for marker in markers])
+        if markers and markers[0].name != "audit":
+            markers[0].name = "audit"
+
+
 def _ensure_schema_version(engine: Engine) -> None:
+    _normalize_schema_marker(engine)
+    with Session(engine) as session:
+        marker = session.get(SchemaVersionRecord, "audit")
+        if marker is not None and (
+            not isinstance(marker.version, int)
+            or marker.version < 0
+            or marker.version > SCHEMA_VERSION
+        ):
+            raise _schema_error(marker.version)
     _upgrade_event_sequence_column(engine)
+    _upgrade_preview_expiry_column(engine)
     with Session(engine) as session, session.begin():
         marker = session.get(SchemaVersionRecord, "audit")
         if marker is None:
             session.add(SchemaVersionRecord(name="audit", version=SCHEMA_VERSION))
-        elif marker.version > SCHEMA_VERSION:
-            raise StorageConfigurationError(
-                f"audit database schema {marker.version} is newer than supported "
-                f"version {SCHEMA_VERSION}"
-            )
         elif marker.version < SCHEMA_VERSION:
             marker.version = SCHEMA_VERSION
 
 
 def get_engine(database_url: str) -> Engine:
     """Return the cached engine and apply additive compatible schema changes."""
+    register_engine_lifecycle()
     engine = _engines.get(database_url)
     if engine is None:
         with _engines_lock:
@@ -251,9 +364,14 @@ def get_engine(database_url: str) -> Engine:
                     database_url,
                     pool_pre_ping=True,
                     json_serializer=canonical_json,
+                    **_pool_options(database_url),
                 )
-                SQLModel.metadata.create_all(engine)
-                _ensure_schema_version(engine)
+                try:
+                    SQLModel.metadata.create_all(engine)
+                    _ensure_schema_version(engine)
+                except Exception:
+                    engine.dispose()
+                    raise
                 _engines[database_url] = engine
     return engine
 
