@@ -40,14 +40,18 @@ from sqlalchemy import (
 from sqlalchemy.engine import Engine
 from sqlmodel import Field, Session, SQLModel, create_engine, select, text
 
-from ..models import DeletionPreview, RetentionPolicy
+from ..models import DeletionPreview, DeletionResult, LogEvent, RetentionPolicy
 from ..serialization import canonical_json
 from .base import (
     BaseLogStorage,
     StorageConfigurationError,
     event_date,
+    event_digest,
     event_id_of,
+    new_event_entry,
+    new_governance_entry,
     object_uid,
+    selection_digest,
     severity_value,
 )
 from .query import (
@@ -68,6 +72,7 @@ __all__ = [
     "Base",
     "EventRecord",
     "GovernanceRecord",
+    "ChainHeadRecord",
     "PolicyRecord",
     "PreviewRecord",
     "SQLRepository",
@@ -104,7 +109,7 @@ class EventRecord(SQLModel, table=True):
     __tablename__ = f"{TABLE_PREFIX}events"
 
     event_id: str = Field(default="", max_length=36, primary_key=True)
-    object_uid: str = Field(default="", max_length=1024, index=True)
+    object_uid: str = Field(default="", max_length=1024, primary_key=True)
     created_at: datetime = Field(
         default=None,
         sa_column=Column(DateTime(timezone=True), index=True, nullable=False),
@@ -127,7 +132,7 @@ class GovernanceRecord(SQLModel, table=True):
     __tablename__ = f"{TABLE_PREFIX}governance"
 
     event_id: str = Field(default="", max_length=36, primary_key=True)
-    object_uid: str = Field(default="", max_length=1024, index=True)
+    object_uid: str = Field(default="", max_length=1024, primary_key=True)
     created_at: datetime = Field(
         default=None,
         sa_column=Column(DateTime(timezone=True), nullable=False),
@@ -157,13 +162,25 @@ class PreviewRecord(SQLModel, table=True):
     __tablename__ = f"{TABLE_PREFIX}previews"
 
     operation_id: str = Field(default="", max_length=36, primary_key=True)
-    object_uid: str = Field(default="", max_length=1024, index=True)
+    object_uid: str = Field(default="", max_length=1024, primary_key=True)
     cutoff: datetime = Field(
         default=None,
         sa_column=Column(DateTime(timezone=True), nullable=False),
     )
     event_ids: Any = Field(default_factory=list, sa_column=Column(JSON, nullable=False))
     selection_digest: str = Field(default="", max_length=64)
+
+
+class ChainHeadRecord(SQLModel, table=True):
+    """Per-object heads serialized with event and governance appends."""
+
+    __tablename__ = f"{TABLE_PREFIX}chain_heads"
+
+    object_uid: str = Field(default="", max_length=1024, primary_key=True)
+    event_id: str = Field(default="", max_length=36)
+    event_digest: str = Field(default="", max_length=64)
+    governance_event_id: str = Field(default="", max_length=36)
+    governance_digest: str = Field(default="", max_length=64)
 
 
 _engines: dict[str, Engine] = {}
@@ -441,6 +458,81 @@ class SQLRepository(BaseLogStorage):
         self.engine = engine
         self.uid = object_uid(context)
 
+    def _lock_namespace(self) -> str:
+        return f"{type(self).__name__}:{id(self.engine)}"
+
+    def _locked_head(self, session: Session) -> ChainHeadRecord:
+        """Load and lock this object's chain head inside a write transaction."""
+        head = session.exec(
+            select(ChainHeadRecord)
+            .where(ChainHeadRecord.object_uid == self.uid)
+            .with_for_update()
+        ).first()
+        if head is not None:
+            return head
+        existing = session.scalars(
+            select(EventRecord).where(EventRecord.object_uid == self.uid)
+        ).all()
+        digest = self._chain_tail([event_to_entry(row) for row in existing])
+        head = ChainHeadRecord(object_uid=self.uid, event_digest=digest)
+        session.add(head)
+        session.flush()
+        return head
+
+    def append(self, event: LogEvent) -> dict[str, Any]:
+        """Append an event and rebuild the timestamp-ordered head atomically."""
+        with self._lock("events"):
+            with Session(self.engine) as session, session.begin():
+                event_id = str(event.event_id)
+                if session.get(EventRecord, (event_id, self.uid)) is not None:
+                    raise ValueError(f"event id {event_id} already exists")
+                head = self._locked_head(session)
+                entry = new_event_entry(event, head.event_digest)
+                session.add(EventRecord(object_uid=self.uid, **event_to_row(entry)))
+                session.flush()
+                records = session.scalars(
+                    select(EventRecord).where(EventRecord.object_uid == self.uid)
+                ).all()
+                ordered = sorted(
+                    records,
+                    key=lambda row: (event_date(event_to_entry(row)), row.event_id),
+                )
+                previous = ""
+                for row in ordered:
+                    canonical = event_to_entry(row)
+                    canonical["previous_digest"] = previous
+                    canonical["integrity_digest"] = event_digest(canonical)
+                    row.previous_digest = canonical["previous_digest"]
+                    row.integrity_digest = canonical["integrity_digest"]
+                    if row.event_id == event_id:
+                        entry.update(canonical)
+                    previous = canonical["integrity_digest"]
+                head.event_id = ordered[-1].event_id
+                head.event_digest = previous
+            return entry
+
+    def _load_event_head(self) -> str:
+        with Session(self.engine) as session:
+            head = session.get(ChainHeadRecord, self.uid)
+            return head.event_digest if head is not None else ""
+
+    def _store_event_head(self, entry: dict[str, Any]) -> None:
+        with Session(self.engine) as session, session.begin():
+            head = self._locked_head(session)
+            head.event_id = str(entry["event_id"])
+            head.event_digest = str(entry["integrity_digest"])
+
+    def _reset_event_head(self) -> None:
+        with Session(self.engine) as session, session.begin():
+            head = self._locked_head(session)
+            records = session.scalars(
+                select(EventRecord).where(EventRecord.object_uid == self.uid)
+            ).all()
+            head.event_digest = self._chain_tail(
+                [event_to_entry(row) for row in records]
+            )
+            head.event_id = ""
+
     # ------------------------------------------------------------------
     # event primitives
     # ------------------------------------------------------------------
@@ -453,7 +545,7 @@ class SQLRepository(BaseLogStorage):
 
     def _load_event(self, event_id: str) -> dict[str, Any] | None:
         with Session(self.engine) as session:
-            record = session.get(EventRecord, event_id)
+            record = session.get(EventRecord, (event_id, self.uid))
             if record is None or record.object_uid != self.uid:
                 return None
             return event_to_entry(record)
@@ -490,15 +582,18 @@ class SQLRepository(BaseLogStorage):
             statement = statement.offset(offset).limit(max(limit, 0))
 
         total_statement = select(func.count()).select_from(EventRecord).where(*criteria)
-        with Session(self.engine) as session:
-            records = session.exec(statement).all()
+        with Session(self.engine) as session, session.begin():
             total = int(session.exec(total_statement).one())
-        return SearchResult(tuple(event_to_entry(record) for record in records), total)
+            records = session.exec(statement).all()
+            rows = tuple(event_to_entry(record) for record in records)
+        return SearchResult(rows, total)
 
     def _store_event(self, entry: dict[str, Any]) -> None:
         row = event_to_row(entry)
         with Session(self.engine) as session, session.begin():
-            session.merge(EventRecord(object_uid=self.uid, **row))
+            if session.get(EventRecord, (row["event_id"], self.uid)) is not None:
+                raise ValueError(f"event id {row['event_id']} already exists")
+            session.add(EventRecord(object_uid=self.uid, **row))
 
     def _delete_events(self, event_ids: tuple[UUID, ...]) -> tuple[int, int]:
         keys = [str(event_id) for event_id in event_ids]
@@ -535,7 +630,12 @@ class SQLRepository(BaseLogStorage):
             if key not in _RESERVED_GOVERNANCE_KEYS
         }
         with Session(self.engine) as session, session.begin():
-            session.merge(
+            if (
+                session.get(GovernanceRecord, (str(entry["event_id"]), self.uid))
+                is not None
+            ):
+                raise ValueError(f"governance id {entry['event_id']} already exists")
+            session.add(
                 GovernanceRecord(
                     event_id=str(entry["event_id"]),
                     object_uid=self.uid,
@@ -548,6 +648,49 @@ class SQLRepository(BaseLogStorage):
                     integrity_digest=str(entry.get("integrity_digest", "")),
                 )
             )
+
+    def _load_governance_head(self) -> str:
+        with Session(self.engine) as session:
+            head = session.get(ChainHeadRecord, self.uid)
+            return head.governance_digest if head is not None else ""
+
+    def _store_governance_head(self, entry: dict[str, Any]) -> None:
+        with Session(self.engine) as session, session.begin():
+            head = self._locked_head(session)
+            head.governance_event_id = str(entry["event_id"])
+            head.governance_digest = str(entry["integrity_digest"])
+
+    def record_governance(
+        self, action: str, actor: str, reason: str, **data: object
+    ) -> dict[str, Any]:
+        """Append governance metadata and its head in one transaction."""
+        with self._lock("governance"):
+            with Session(self.engine) as session, session.begin():
+                head = self._locked_head(session)
+                entry = new_governance_entry(
+                    action, actor, reason, head.governance_digest, **data
+                )
+                payload = {
+                    key: value
+                    for key, value in entry.items()
+                    if key not in _RESERVED_GOVERNANCE_KEYS
+                }
+                session.add(
+                    GovernanceRecord(
+                        event_id=str(entry["event_id"]),
+                        object_uid=self.uid,
+                        created_at=_as_utc(entry["created_at"]),
+                        actor=str(entry["actor"]),
+                        action=str(entry["action"]),
+                        reason=str(entry["reason"]),
+                        payload=payload or None,
+                        previous_digest=str(entry["previous_digest"]),
+                        integrity_digest=str(entry["integrity_digest"]),
+                    )
+                )
+                head.governance_event_id = str(entry["event_id"])
+                head.governance_digest = str(entry["integrity_digest"])
+            return entry
 
     # ------------------------------------------------------------------
     # retention primitives
@@ -586,9 +729,82 @@ class SQLRepository(BaseLogStorage):
                 )
             )
 
+    def _consume_preview(self, preview: DeletionPreview) -> DeletionPreview | None:
+        with Session(self.engine) as session, session.begin():
+            record = session.get(PreviewRecord, (str(preview.operation_id), self.uid))
+            if record is None:
+                return None
+            stored = DeletionPreview(
+                UUID(record.operation_id),
+                record.object_uid,
+                _as_utc(record.cutoff),
+                tuple(UUID(str(event_id)) for event_id in (record.event_ids or [])),
+                record.selection_digest,
+            )
+            if stored != preview:
+                return None
+            session.delete(record)
+            return stored
+
+    def delete_preview(self, preview: DeletionPreview, reason: str) -> DeletionResult:
+        """Consume preview, delete events, and write governance atomically."""
+        if len(reason.strip()) < 10:
+            raise ValueError("deletion reason must contain at least 10 characters")
+        with self._lock("events"):
+            with Session(self.engine) as session, session.begin():
+                record = session.get(
+                    PreviewRecord, (str(preview.operation_id), self.uid)
+                )
+                if record is None:
+                    raise ValueError("deletion preview is missing or stale")
+                stored = DeletionPreview(
+                    UUID(record.operation_id),
+                    record.object_uid,
+                    _as_utc(record.cutoff),
+                    tuple(UUID(str(event_id)) for event_id in (record.event_ids or [])),
+                    record.selection_digest,
+                )
+                if (
+                    stored != preview
+                    or stored.object_uid != self.uid
+                    or stored.selection_digest
+                    != selection_digest(
+                        stored.object_uid, stored.event_ids, stored.cutoff
+                    )
+                ):
+                    raise ValueError("deletion preview is missing or stale")
+                session.delete(record)
+                keys = [str(event_id) for event_id in stored.event_ids]
+                result = session.exec(
+                    delete(EventRecord).where(
+                        EventRecord.object_uid == self.uid,
+                        EventRecord.event_id.in_(keys),
+                    )
+                )
+                deleted = int(result.rowcount or 0)
+                missing = len(keys) - deleted
+                head = self._locked_head(session)
+                session.flush()
+                remaining = session.scalars(
+                    select(EventRecord).where(EventRecord.object_uid == self.uid)
+                ).all()
+                head.event_digest = self._chain_tail(
+                    [event_to_entry(row) for row in remaining]
+                )
+                head.event_id = ""
+            return DeletionResult(
+                stored.operation_id,
+                len(keys),
+                len(keys),
+                deleted,
+                missing,
+                0,
+                reason,
+            )
+
     def _load_preview(self, operation_id: str) -> DeletionPreview | None:
         with Session(self.engine) as session:
-            record = session.get(PreviewRecord, operation_id)
+            record = session.get(PreviewRecord, (operation_id, self.uid))
             if record is None or record.object_uid != self.uid:
                 return None
             return DeletionPreview(

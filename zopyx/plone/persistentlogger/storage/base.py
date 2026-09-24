@@ -26,8 +26,10 @@ Governance journal records are dictionaries with ``event_id``, ``created_at``,
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from datetime import datetime, timedelta
 from hashlib import sha256
+from threading import Lock, RLock
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -38,7 +40,7 @@ from ..models import (
     RetentionPolicy,
     utc_now,
 )
-from ..serialization import canonical_json, event_digest, event_row
+from ..serialization import canonical_json, event_row
 from .query import (
     Condition,
     ConditionGroup,
@@ -54,18 +56,32 @@ __all__ = [
     "BaseLogStorage",
     "StorageConfigurationError",
     "event_date",
+    "event_digest",
     "event_id_of",
+    "governance_digest",
     "new_event_entry",
     "new_governance_entry",
     "object_uid",
     "SearchResult",
     "selection_digest",
     "severity_value",
+    "verify_event_chain",
+    "verify_governance_chain",
 ]
 
 
 class StorageConfigurationError(RuntimeError):
     """Raised when the configured storage backend cannot be used."""
+
+
+_locks: dict[tuple[str, str], RLock] = {}
+_locks_guard = Lock()
+
+
+def _lock_for(namespace: str, uid: str) -> RLock:
+    key = (namespace, uid)
+    with _locks_guard:
+        return _locks.setdefault(key, RLock())
 
 
 def object_uid(context: Any) -> str:
@@ -84,6 +100,123 @@ def object_uid(context: Any) -> str:
     return str(getattr(context, "__name__", "unknown"))
 
 
+def _event_payload(entry: Any, previous_digest: str | None = None) -> dict[str, Any]:
+    """Return the digest payload without legacy aliases or the digest itself."""
+    if isinstance(entry, dict):
+        row = {
+            "event_id": entry.get("event_id", entry.get("uuid", "")),
+            "created_at": entry.get("created_at", entry.get("date")),
+            "actor": entry.get("actor", entry.get("username", "")),
+            "event_type": entry.get("event_type", "application"),
+            "severity": entry.get("severity", entry.get("level", "info")),
+            "target": entry.get("target", ""),
+            "comment": entry.get("comment", ""),
+            "info_url": entry.get("info_url"),
+            "details": entry.get("details", entry.get("details_raw")),
+            "schema_version": entry.get("schema_version", 1),
+        }
+    else:
+        row = event_row(entry)
+    previous = (
+        previous_digest
+        if previous_digest is not None
+        else str(entry.get("previous_digest", ""))
+        if isinstance(entry, dict)
+        else ""
+    )
+    return {
+        "event_id": str(row["event_id"]),
+        "created_at": row["created_at"],
+        "actor": str(row["actor"] or ""),
+        "event_type": str(row["event_type"] or ""),
+        "severity": getattr(row["severity"], "value", row["severity"]),
+        "target": str(row["target"] or ""),
+        "comment": str(row["comment"] or ""),
+        "info_url": row["info_url"],
+        "details": row["details"],
+        "schema_version": int(row["schema_version"] or 1),
+        "previous_digest": previous,
+    }
+
+
+def event_digest(event: Any, previous_digest: str | None = None) -> str:
+    """Return the canonical, non-self-referential event digest."""
+    payload = _event_payload(event, previous_digest)
+    return sha256(canonical_json(payload).encode("utf-8")).hexdigest()
+
+
+_GOVERNANCE_FIELDS = frozenset(
+    {"event_id", "created_at", "actor", "action", "reason", "previous_digest"}
+)
+
+
+def _governance_payload(entry: dict[str, Any]) -> dict[str, Any]:
+    """Return the canonical governance payload, including all caller data."""
+    return {
+        "event_id": str(entry.get("event_id", "")),
+        "created_at": entry.get("created_at"),
+        "actor": str(entry.get("actor", "")),
+        "action": str(entry.get("action", "")),
+        "reason": str(entry.get("reason", "")),
+        "payload": {
+            key: value
+            for key, value in entry.items()
+            if key not in _GOVERNANCE_FIELDS | {"integrity_digest"}
+        },
+        "previous_digest": str(entry.get("previous_digest", "")),
+    }
+
+
+def governance_digest(entry: dict[str, Any]) -> str:
+    """Return the canonical governance digest over metadata and payload."""
+    return sha256(
+        canonical_json(_governance_payload(entry)).encode("utf-8")
+    ).hexdigest()
+
+
+def _verify_chain(
+    records: list[dict[str, Any]], digest: Callable[[dict[str, Any]], str]
+) -> bool:
+    if not records:
+        return True
+    if any(not isinstance(record, dict) for record in records):
+        return False
+    if len({event_id_of(record) for record in records}) != len(records):
+        return False
+    if any(
+        not record.get("integrity_digest")
+        or digest(record) != record.get("integrity_digest")
+        for record in records
+    ):
+        return False
+    first = [record for record in records if not record.get("previous_digest")]
+    if len(first) != 1:
+        return False
+    by_previous = {str(record.get("previous_digest", "")): record for record in records}
+    current = first[0]
+    visited: set[str] = set()
+    while True:
+        record_id = event_id_of(current)
+        if record_id in visited:
+            return False
+        visited.add(record_id)
+        successor = by_previous.get(str(current["integrity_digest"]))
+        if successor is None:
+            break
+        current = successor
+    return len(visited) == len(records)
+
+
+def verify_event_chain(records: list[dict[str, Any]]) -> bool:
+    """Verify event contents, links, and that no chain element is missing."""
+    return _verify_chain(records, event_digest)
+
+
+def verify_governance_chain(records: list[dict[str, Any]]) -> bool:
+    """Verify governance contents, links, and that no chain element is missing."""
+    return _verify_chain(records, governance_digest)
+
+
 def new_event_entry(event: Any, previous_digest: str = "") -> dict[str, Any]:
     """Build a canonical event record including its chain digest."""
     entry: dict[str, Any] = event_row(event)
@@ -94,8 +227,9 @@ def new_event_entry(event: Any, previous_digest: str = "") -> dict[str, Any]:
         level=getattr(event.severity, "value", event.severity),
         details_raw=event.details,
         previous_digest=previous_digest,
-        integrity_digest=event_digest(event, previous_digest),
+        integrity_digest="",
     )
+    entry["integrity_digest"] = event_digest(entry, previous_digest)
     return entry
 
 
@@ -109,10 +243,10 @@ def new_governance_entry(
         "actor": actor,
         "action": action,
         "reason": reason,
-        **data,
+        **{key: value for key, value in data.items() if key not in _GOVERNANCE_FIELDS},
     }
     entry["previous_digest"] = previous_digest
-    entry["integrity_digest"] = event_digest(entry, previous_digest)
+    entry["integrity_digest"] = governance_digest(entry)
     return entry
 
 
@@ -147,6 +281,9 @@ class BaseLogStorage(ABC):
     def _store_event(self, entry: dict[str, Any]) -> None:
         """Persist one event record, replacing a record with the same id."""
 
+    def _rewrite_event(self, entry: dict[str, Any]) -> None:
+        """Persist a changed digest while rebuilding a canonical chain."""
+
     @abstractmethod
     def _delete_events(self, event_ids: tuple[UUID, ...]) -> tuple[int, int]:
         """Delete records and return ``(deleted, missing)``."""
@@ -179,6 +316,34 @@ class BaseLogStorage(ABC):
     def _load_preview(self, operation_id: str) -> DeletionPreview | None:
         """Return a stored deletion preview of this object."""
 
+    def _consume_preview(self, preview: DeletionPreview) -> DeletionPreview | None:
+        """Consume a preview; persistent backends override this atomically."""
+        stored = self._load_preview(str(preview.operation_id))
+        return stored if stored == preview else None
+
+    def _store_event_head(self, entry: dict[str, Any]) -> None:
+        """Persist the event chain head when the backend needs one."""
+
+    def _store_governance_head(self, entry: dict[str, Any]) -> None:
+        """Persist the governance chain head when the backend needs one."""
+
+    def _load_event_head(self) -> str:
+        """Return the persisted event chain head, if available."""
+        return ""
+
+    def _reset_event_head(self) -> None:
+        """Reset the event head after an intentional retention deletion."""
+
+    def _load_governance_head(self) -> str:
+        """Return the persisted governance chain head, if available."""
+        return ""
+
+    def _lock_namespace(self) -> str:
+        return type(self).__name__
+
+    def _lock(self, kind: str) -> RLock:
+        return _lock_for(f"{self._lock_namespace()}:{kind}", self.object_uid())
+
     def _load_event(self, event_id: str) -> dict[str, Any] | None:
         """Return a single event record. Backends may override for speed."""
         return next(
@@ -199,6 +364,42 @@ class BaseLogStorage(ABC):
         return sorted(
             records, key=lambda entry: (event_date(entry), event_id_of(entry))
         )
+
+    @staticmethod
+    def _chain_tail(records: list[dict[str, Any]]) -> str:
+        """Find a chain tail without using event timestamps as order."""
+        if not records:
+            return ""
+        by_previous = {
+            str(entry.get("previous_digest", "")): entry for entry in records
+        }
+        current = by_previous.get("")
+        if current is None:
+            return ""
+        visited: set[str] = set()
+        while event_id_of(current) not in visited:
+            visited.add(event_id_of(current))
+            successor = by_previous.get(str(current.get("integrity_digest", "")))
+            if successor is None:
+                return str(current.get("integrity_digest", ""))
+            current = successor
+        return ""
+
+    def _rebuild_event_chain(self) -> str:
+        """Re-link events in deterministic timestamp/id order."""
+        records = [entry for entry in self._load_events() if isinstance(entry, dict)]
+        ordered = sorted(
+            records, key=lambda entry: (event_date(entry), event_id_of(entry))
+        )
+        previous = ""
+        for entry in ordered:
+            entry["previous_digest"] = previous
+            entry["integrity_digest"] = event_digest(entry)
+            self._rewrite_event(entry)
+            previous = entry["integrity_digest"]
+        if ordered:
+            self._store_event_head(ordered[-1])
+        return previous
 
     def search(
         self,
@@ -231,9 +432,14 @@ class BaseLogStorage(ABC):
 
     def append(self, event: LogEvent) -> dict[str, Any]:
         """Append one event and return the stored record."""
-        entry = new_event_entry(event, self.last_digest())
-        self._store_event(entry)
-        return entry
+        previous = self.last_digest()
+        with self._lock("events"):
+            if self.get(event.event_id) is not None:
+                raise ValueError(f"event id {event.event_id} already exists")
+            entry = new_event_entry(event, previous)
+            self._store_event(entry)
+            self._rebuild_event_chain()
+            return entry
 
     def get(self, event_id: Any) -> dict[str, Any] | None:
         """Return one event record by id or ``None``."""
@@ -242,11 +448,11 @@ class BaseLogStorage(ABC):
     def clear(self) -> None:
         """Remove every event record of this object."""
         self._remove_all_events()
+        self._reset_event_head()
 
     def last_digest(self) -> str:
-        """Return the integrity digest of the most recent event."""
-        entries = self.events()
-        return str(entries[-1].get("integrity_digest", "")) if entries else ""
+        """Return the integrity digest of the append-only event head."""
+        return self._load_event_head() or self._chain_tail(self._load_events())
 
     # ------------------------------------------------------------------
     # retention
@@ -280,22 +486,33 @@ class BaseLogStorage(ABC):
         return preview
 
     def delete_preview(self, preview: DeletionPreview, reason: str) -> DeletionResult:
-        """Execute a stored deletion preview."""
+        """Execute and consume a stored deletion preview exactly once."""
         if len(reason.strip()) < 10:
             raise ValueError("deletion reason must contain at least 10 characters")
-        stored = self._load_preview(str(preview.operation_id))
-        if stored is None or stored.selection_digest != preview.selection_digest:
-            raise ValueError("deletion preview is missing or stale")
-        deleted, missing = self._delete_events(preview.event_ids)
-        return DeletionResult(
-            preview.operation_id,
-            len(preview.event_ids),
-            len(preview.event_ids),
-            deleted,
-            missing,
-            0,
-            reason,
-        )
+        with self._lock("events"):
+            stored = self._load_preview(str(preview.operation_id))
+            if (
+                stored is None
+                or stored != preview
+                or stored.object_uid != self.object_uid()
+                or stored.selection_digest
+                != selection_digest(stored.object_uid, stored.event_ids, stored.cutoff)
+            ):
+                raise ValueError("deletion preview is missing or stale")
+            consumed = self._consume_preview(stored)
+            if consumed is None:
+                raise ValueError("deletion preview is missing or stale")
+            deleted, missing = self._delete_events(stored.event_ids)
+            self._reset_event_head()
+            return DeletionResult(
+                stored.operation_id,
+                len(stored.event_ids),
+                len(stored.event_ids),
+                deleted,
+                missing,
+                0,
+                reason,
+            )
 
     def get_preview(self, operation_id: Any) -> DeletionPreview | None:
         """Return a stored deletion preview or ``None``."""
@@ -315,8 +532,13 @@ class BaseLogStorage(ABC):
         self, action: str, actor: str, reason: str, **data: object
     ) -> dict[str, Any]:
         """Append one governance record and return the stored entry."""
-        entries = self.journal()
-        previous = str(entries[-1].get("integrity_digest", "")) if entries else ""
-        entry = new_governance_entry(action, actor, reason, previous, **data)
-        self._store_governance(entry)
-        return entry
+        with self._lock("governance"):
+            entry = new_governance_entry(
+                action, actor, reason, self._governance_tail(), **data
+            )
+            self._store_governance(entry)
+            self._store_governance_head(entry)
+            return entry
+
+    def _governance_tail(self) -> str:
+        return self._load_governance_head() or self._chain_tail(self._load_journal())

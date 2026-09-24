@@ -20,10 +20,14 @@ from .base import (
     BaseLogStorage,
     StorageConfigurationError,
     event_date,
+    event_digest,
     event_id_of,
+    governance_digest,
     object_uid,
     selection_digest,
     severity_value,
+    verify_event_chain,
+    verify_governance_chain,
 )
 from .factory import (
     BACKEND_RDBMS,
@@ -51,6 +55,7 @@ from .query import (
     parse_sort_model,
 )
 from .zodb import (
+    CHAIN_HEAD_KEY,
     JOURNAL_KEY,
     LOG_KEY,
     POLICY_KEY,
@@ -62,6 +67,7 @@ __all__ = [
     "BACKENDS",
     "BACKEND_RDBMS",
     "BACKEND_ZODB",
+    "CHAIN_HEAD_KEY",
     "JOURNAL_KEY",
     "LOG_KEY",
     "POLICY_KEY",
@@ -82,8 +88,10 @@ __all__ = [
     "parse_sort_model",
     "check_database_connection",
     "event_date",
+    "event_digest",
     "event_id_of",
     "get_repository",
+    "governance_digest",
     "object_uid",
     "resolve_backend",
     "resolve_database_url",
@@ -92,4 +100,6 @@ __all__ = [
     "storage_settings",
     "storage_settings_changed",
     "validate_storage_configuration",
+    "verify_event_chain",
+    "verify_governance_chain",
 ]

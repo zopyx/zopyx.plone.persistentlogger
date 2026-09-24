@@ -21,6 +21,7 @@ from .base import BaseLogStorage, event_id_of
 
 __all__ = [
     "JOURNAL_KEY",
+    "CHAIN_HEAD_KEY",
     "LOG_KEY",
     "POLICY_KEY",
     "PREVIEW_KEY",
@@ -31,6 +32,7 @@ LOG_KEY = "zopyx.plone.persistentlogger.connector.log"
 JOURNAL_KEY = "zopyx.plone.persistentlogger.connector.governance"
 POLICY_KEY = "zopyx.plone.persistentlogger.connector.retention"
 PREVIEW_KEY = "zopyx.plone.persistentlogger.connector.previews"
+CHAIN_HEAD_KEY = "zopyx.plone.persistentlogger.connector.chain-head"
 
 
 class AnnotationRepository(BaseLogStorage):
@@ -66,8 +68,29 @@ class AnnotationRepository(BaseLogStorage):
 
     def _store_event(self, entry: dict[str, Any]) -> None:
         store = self.annotations
+        if store.get(entry["uuid"]) is not None:
+            raise ValueError(f"event id {entry['uuid']} already exists")
         store[entry["uuid"]] = entry
         store._p_changed = True
+
+    def _load_event_head(self) -> str:
+        value = IAnnotations(self.context).get(CHAIN_HEAD_KEY)
+        return str(value.get("event_digest", "")) if isinstance(value, dict) else ""
+
+    def _store_event_head(self, entry: dict[str, Any]) -> None:
+        IAnnotations(self.context)[CHAIN_HEAD_KEY] = PersistentMapping(
+            {
+                "event_digest": str(entry["integrity_digest"]),
+                "event_id": str(entry["event_id"]),
+            }
+        )
+
+    def _reset_event_head(self) -> None:
+        annotations = IAnnotations(self.context)
+        value = annotations.get(CHAIN_HEAD_KEY)
+        head = dict(value) if isinstance(value, dict) else {}
+        head["event_digest"] = self._chain_tail(self._load_events())
+        annotations[CHAIN_HEAD_KEY] = PersistentMapping(head)
 
     def _delete_events(self, event_ids: tuple[UUID, ...]) -> tuple[int, int]:
         store = self.annotations
@@ -118,6 +141,20 @@ class AnnotationRepository(BaseLogStorage):
         store[entry["event_id"]] = entry
         store._p_changed = True
 
+    def _load_governance_head(self) -> str:
+        value = IAnnotations(self.context).get(CHAIN_HEAD_KEY)
+        return (
+            str(value.get("governance_digest", "")) if isinstance(value, dict) else ""
+        )
+
+    def _store_governance_head(self, entry: dict[str, Any]) -> None:
+        annotations = IAnnotations(self.context)
+        value = annotations.get(CHAIN_HEAD_KEY)
+        head = dict(value) if isinstance(value, dict) else {}
+        head["governance_digest"] = str(entry["integrity_digest"])
+        head["governance_event_id"] = str(entry["event_id"])
+        annotations[CHAIN_HEAD_KEY] = PersistentMapping(head)
+
     # ------------------------------------------------------------------
     # retention primitives
     # ------------------------------------------------------------------
@@ -147,6 +184,17 @@ class AnnotationRepository(BaseLogStorage):
 
     def _store_preview(self, preview: DeletionPreview) -> None:
         self._previews(create=True)[str(preview.operation_id)] = preview
+
+    def _consume_preview(self, preview: DeletionPreview) -> DeletionPreview | None:
+        previews = self._previews()
+        if previews is None:
+            return None
+        stored = previews.get(str(preview.operation_id))
+        if stored != preview:
+            return None
+        del previews[str(preview.operation_id)]
+        previews._p_changed = True
+        return stored
 
     def _load_preview(self, operation_id: str) -> DeletionPreview | None:
         previews = self._previews()

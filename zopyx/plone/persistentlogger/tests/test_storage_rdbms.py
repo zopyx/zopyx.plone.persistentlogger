@@ -9,12 +9,16 @@ skips itself.
 from __future__ import annotations
 
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
+from tempfile import TemporaryDirectory
+from uuid import uuid4
 
 from sqlalchemy import inspect
-from sqlmodel import select
+from sqlmodel import SQLModel, create_engine, select
 
 from ..models import LogEvent, RetentionPolicy
+from ..storage.base import verify_event_chain
 from ..storage.rdbms import (
     EventRecord,
     GovernanceRecord,
@@ -176,6 +180,64 @@ class RdbmsHelperTests(unittest.TestCase):
         self.assertEqual(_as_utc(aware), aware)
 
 
+class RdbmsSQLiteHardeningTests(unittest.TestCase):
+    """Exercise storage invariants without requiring a PostgreSQL container."""
+
+    def setUp(self):
+        self.tmp = TemporaryDirectory()
+        self.engine = create_engine(
+            f"sqlite:///{self.tmp.name}/storage.db",
+            connect_args={"check_same_thread": False},
+        )
+        SQLModel.metadata.create_all(self.engine)
+
+    def tearDown(self):
+        self.engine.dispose()
+        self.tmp.cleanup()
+
+    def test_uuid_can_be_reused_by_another_object_without_merging_rows(self):
+        event_id = uuid4()
+        first = SQLRepository(Context("first"), engine=self.engine)
+        second = SQLRepository(Context("second"), engine=self.engine)
+        first.append(LogEvent(comment="first", event_id=event_id))
+        second.append(LogEvent(comment="second", event_id=event_id))
+        self.assertEqual([row["comment"] for row in first.events()], ["first"])
+        self.assertEqual([row["comment"] for row in second.events()], ["second"])
+
+    def test_duplicate_uuid_on_one_object_is_rejected(self):
+        event_id = uuid4()
+        repository = SQLRepository(Context("same"), engine=self.engine)
+        repository.append(LogEvent(comment="first", event_id=event_id))
+        with self.assertRaises(ValueError):
+            repository.append(LogEvent(comment="duplicate", event_id=event_id))
+
+    def test_search_page_and_count_share_the_same_scope_and_filters(self):
+        repository = SQLRepository(Context("search"), engine=self.engine)
+        for comment in ("alpha", "beta", "alphabet"):
+            repository.append(LogEvent(comment=comment))
+        result = repository.search(quick="alpha", offset=1, limit=1)
+        self.assertEqual(result.total, 2)
+        self.assertEqual(len(result.rows), 1)
+
+    def test_concurrent_appends_have_one_deterministic_chain(self):
+        repositories = [
+            SQLRepository(Context("concurrent"), engine=self.engine) for _ in range(8)
+        ]
+
+        def append(index):
+            return repositories[index].append(LogEvent(comment=f"event-{index}"))
+
+        with ThreadPoolExecutor(max_workers=8) as executor:
+            returned = list(executor.map(append, range(8)))
+        stored = repositories[0].events()
+        self.assertEqual(len(stored), 8)
+        self.assertEqual(len({row["previous_digest"] for row in stored}), 8)
+        self.assertTrue(verify_event_chain(stored))
+        self.assertEqual(
+            {row["uuid"] for row in returned}, {row["uuid"] for row in stored}
+        )
+
+
 def test_suite():
     from unittest import TestLoader, TestSuite
 
@@ -184,4 +246,5 @@ def test_suite():
     suite.addTest(loader.loadTestsFromTestCase(RdbmsStorageContractTests))
     suite.addTest(loader.loadTestsFromTestCase(RdbmsSpecificTests))
     suite.addTest(loader.loadTestsFromTestCase(RdbmsHelperTests))
+    suite.addTest(loader.loadTestsFromTestCase(RdbmsSQLiteHardeningTests))
     return suite

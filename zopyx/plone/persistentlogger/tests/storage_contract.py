@@ -12,10 +12,11 @@ from __future__ import annotations
 import json
 from datetime import UTC, datetime, timedelta
 from unittest.mock import patch
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from ..models import DeletionPreview, LogEvent, RetentionPolicy, Severity
 from ..serialization import canonical_json
+from ..storage.base import verify_event_chain, verify_governance_chain
 from ..storage.query import ConditionGroup, SortSpec, parse_filter_model
 
 
@@ -286,6 +287,35 @@ class StorageContractMixin:
             self.repository.delete_preview(stale, "a sufficiently long reason")
         self.assertEqual(len(self.repository.events()), 1)
 
+    def test_delete_preview_uses_stored_selection_not_caller_ids(self):
+        expired = self.append(self.now - timedelta(days=400), "expired")
+        keep = self.append(self.now, "keep")
+        preview = self.repository.preview_delete(
+            RetentionPolicy(enabled=True, older_than_days=365), self.now
+        )
+        forged = DeletionPreview(
+            preview.operation_id,
+            preview.object_uid,
+            preview.cutoff,
+            (UUID(keep["uuid"]),),
+            preview.selection_digest,
+        )
+        with self.assertRaises(ValueError):
+            self.repository.delete_preview(forged, "retention policy cleanup")
+        self.assertEqual(
+            [entry["uuid"] for entry in self.repository.events()],
+            [expired["uuid"], keep["uuid"]],
+        )
+
+    def test_delete_preview_is_one_shot(self):
+        self.append(self.now - timedelta(days=400), "expired")
+        preview = self.repository.preview_delete(
+            RetentionPolicy(enabled=True, older_than_days=365), self.now
+        )
+        self.repository.delete_preview(preview, "retention policy cleanup")
+        with self.assertRaises(ValueError):
+            self.repository.delete_preview(preview, "retention policy cleanup")
+
     def test_delete_preview_removes_events_and_counts_missing(self):
         self.append(self.now - timedelta(days=400), "expired")
         self.append(self.now, "keep")
@@ -338,6 +368,17 @@ class StorageContractMixin:
         self.assertEqual(first["previous_digest"], "")
         self.assertEqual(second["previous_digest"], first["integrity_digest"])
         self.assertEqual(len(self.repository.journal()), 2)
+        self.assertTrue(verify_governance_chain(self.repository.journal()))
+
+    def test_event_chain_detects_tampering_and_missing_records(self):
+        self.append(comment="first")
+        self.append(comment="second")
+        events = self.repository.events()
+        self.assertTrue(verify_event_chain(events))
+        self.assertFalse(
+            verify_event_chain([dict(events[0], comment="tampered"), events[1]])
+        )
+        self.assertFalse(verify_event_chain([events[1]]))
 
     def test_journal_is_reconstructed_from_storage(self):
         entry = self.repository.record_governance(

@@ -12,7 +12,16 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from ..models import LogEvent, RetentionPolicy, Severity
-from ..storage.base import BaseLogStorage, object_uid
+from ..storage.base import (
+    BaseLogStorage,
+    event_digest,
+    governance_digest,
+    new_event_entry,
+    new_governance_entry,
+    object_uid,
+    verify_event_chain,
+    verify_governance_chain,
+)
 from .storage_contract import StorageContractMixin
 
 
@@ -122,6 +131,52 @@ class BaseLogStorageTests(unittest.TestCase):
         storage.clear()
         self.assertEqual(storage.events(), [])
         self.assertIsNone(storage.get(entry["uuid"]))
+
+    def test_event_digest_is_canonical_and_verifiable(self):
+        event = LogEvent(
+            comment="canonical",
+            created_at=datetime(2026, 1, 1, tzinfo=UTC),
+            severity=Severity.INFO,
+        )
+        entry = new_event_entry(event)
+        self.assertEqual(event_digest(entry), entry["integrity_digest"])
+        self.assertTrue(verify_event_chain([entry]))
+
+        tampered = dict(entry, comment="changed")
+        self.assertFalse(verify_event_chain([tampered]))
+
+    def test_governance_digest_covers_action_reason_and_payload(self):
+        entry = new_governance_entry(
+            "retention_delete", "manager", "policy cleanup", "", deleted=2
+        )
+        self.assertEqual(governance_digest(entry), entry["integrity_digest"])
+        self.assertTrue(verify_governance_chain([entry]))
+        self.assertFalse(
+            verify_governance_chain([dict(entry, reason="different reason")])
+        )
+        self.assertEqual(
+            governance_digest(dict(entry, integrity_digest="forged")),
+            entry["integrity_digest"],
+        )
+
+    def test_append_chain_uses_deterministic_timestamp_order(self):
+        storage = StubStorage()
+        newest = LogEvent(
+            comment="newest",
+            created_at=datetime(2026, 1, 2, tzinfo=UTC),
+        )
+        oldest = LogEvent(
+            comment="oldest",
+            created_at=datetime(2026, 1, 1, tzinfo=UTC),
+        )
+        storage.append(newest)
+        storage.append(oldest)
+        entries = storage.events()
+        self.assertEqual([entry["comment"] for entry in entries], ["oldest", "newest"])
+        self.assertEqual(entries[0]["previous_digest"], "")
+        self.assertEqual(entries[1]["previous_digest"], entries[0]["integrity_digest"])
+        self.assertEqual(storage.last_digest(), entries[1]["integrity_digest"])
+        self.assertTrue(verify_event_chain(entries))
 
 
 class StorageContractMixinTests(unittest.TestCase):
