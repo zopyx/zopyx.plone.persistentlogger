@@ -91,8 +91,9 @@
                 };
             } else if (column.field === "comment") {
                 definition.flex = 3;
+                // wrapText only: agGrid's infinite row model ignores autoHeight
+                // and logs a console warning, so the row height stays uniform.
                 definition.wrapText = true;
-                definition.autoHeight = true;
             } else if (column.field === "details") {
                 definition.flex = 2;
                 definition.cellRenderer = detailsRenderer;
