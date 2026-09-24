@@ -45,6 +45,11 @@
         handler="zopyx.plone.persistentlogger.storage.factory.storage_settings_changed"
     />
 
+    <subscriber
+        for="zope.processlifetime.IProcessStarting"
+        handler="zopyx.plone.persistentlogger.storage.rdbms.register_engine_lifecycle"
+    />
+
     <genericsetup:registerProfile
         name="default"
         title="Plone persistent logger"

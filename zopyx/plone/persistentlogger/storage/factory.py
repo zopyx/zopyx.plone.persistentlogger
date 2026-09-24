@@ -10,6 +10,7 @@ retention service and the browser views -- automatically follows the setting.
 from __future__ import annotations
 
 import os
+import re
 from typing import Any
 
 from plone.registry.interfaces import IRegistry
@@ -17,6 +18,7 @@ from zope.component import ComponentLookupError, getUtility
 from zope.component.hooks import getSite
 
 from ..interfaces import IStorageSettings
+from ..site_identity import stable_site_key
 from .base import BaseLogStorage, StorageConfigurationError
 from .zodb import AnnotationRepository
 
@@ -29,10 +31,13 @@ __all__ = [
     "check_database_connection",
     "clear_cache",
     "get_repository",
+    "redact_database_url",
     "resolve_backend",
     "resolve_database_url",
     "storage_settings",
     "storage_settings_changed",
+    "storage_error_message",
+    "storage_health",
     "validate_storage_configuration",
 ]
 
@@ -54,12 +59,17 @@ class _FallbackSettings:
 
 # Registry lookups happen on every log write, so the proxy is cached per
 # site and invalidated whenever a registry record changes.
-_settings_cache: dict[int, Any] = {}
+_settings_cache: dict[tuple[str, ...], Any] = {}
+
+
+def _site_key() -> tuple[str, ...]:
+    """Return the stable key used for the current site's settings cache."""
+    return stable_site_key(getSite())
 
 
 def storage_settings() -> Any:
     """Return settings; use ZODB fallback only before a registry exists."""
-    site_key = id(getSite())
+    site_key = _site_key()
     cached = _settings_cache.get(site_key)
     if cached is not None:
         return cached
@@ -105,6 +115,74 @@ def resolve_database_url(settings: Any = None) -> str:
     if url:
         return url
     return os.environ.get(ENVIRONMENT_URL_VARIABLE, "").strip()
+
+
+_AUTHORITY_SECRET = re.compile(r"(://[^/:@\s]+:)[^/@\s]+(@)")
+_QUERY_SECRET = re.compile(
+    r"([?&](?:password|passwd|pwd|secret|token|api[_-]?key|key)=)[^&\s]*",
+    re.IGNORECASE,
+)
+
+
+def redact_database_url(database_url: str) -> str:
+    """Return a display-safe database URL without credentials."""
+    value = str(database_url or "")
+    try:
+        from sqlalchemy.engine import make_url
+
+        value = make_url(value).render_as_string(hide_password=True)
+    except Exception:
+        value = _AUTHORITY_SECRET.sub(r"\1***\2", value)
+    return _QUERY_SECRET.sub(r"\1***", value)
+
+
+def storage_error_message(error: Exception, database_url: str = "") -> str:
+    """Return an operational error with connection credentials removed."""
+    message = str(error)
+    if database_url:
+        message = message.replace(database_url, redact_database_url(database_url))
+    message = _AUTHORITY_SECRET.sub(r"\1***\2", message)
+    return _QUERY_SECRET.sub(r"\1***", message)
+
+
+def storage_health(settings: Any = None, check: bool = False) -> dict[str, Any]:
+    """Return a safe, machine-readable storage configuration status."""
+    try:
+        backend = resolve_backend(settings)
+        url = resolve_database_url(settings)
+        error = validate_storage_configuration(backend, url)
+        if error is not None:
+            return {
+                "status": "unhealthy",
+                "code": "invalid_configuration",
+                "backend": backend,
+                "database_url": redact_database_url(url),
+                "error": error,
+            }
+        if check and backend == BACKEND_RDBMS:
+            error = check_database_connection(url)
+            if error is not None:
+                return {
+                    "status": "unhealthy",
+                    "code": "database_unavailable",
+                    "backend": backend,
+                    "database_url": redact_database_url(url),
+                    "error": error,
+                }
+        return {
+            "status": "healthy",
+            "code": "ok",
+            "backend": backend,
+            "database_url": redact_database_url(url),
+        }
+    except Exception as exc:
+        return {
+            "status": "unhealthy",
+            "code": "storage_configuration_error",
+            "backend": None,
+            "database_url": "",
+            "error": storage_error_message(exc),
+        }
 
 
 def build_rdbms_repository(context: Any, database_url: str) -> BaseLogStorage:
@@ -189,7 +267,8 @@ def validate_storage_configuration(
     except StorageConfigurationError as exc:
         return str(exc)
     except Exception as exc:
-        return f"The database URL is not valid: {exc}"
+        detail = storage_error_message(exc, database_url or "")
+        return f"The database URL is not valid: {detail}"
     return None
 
 
@@ -205,5 +284,7 @@ def check_database_connection(database_url: str) -> str | None:
     try:
         check_connection(database_url)
     except Exception as exc:
-        return f"Could not connect to the configured database: {exc}"
+        safe_url = redact_database_url(database_url)
+        detail = storage_error_message(exc, database_url)
+        return f"Could not connect to the configured database {safe_url}: {detail}"
     return None

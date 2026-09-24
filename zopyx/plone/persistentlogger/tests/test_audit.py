@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import unittest
 from datetime import date
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from persistent import Persistent
@@ -17,6 +18,7 @@ from zopyx.plone.persistentlogger.audit import (
     _metadata,
     audit_object_created,
     audit_object_modified,
+    audit_object_removed,
     audit_settings,
     is_audited,
 )
@@ -244,6 +246,44 @@ class AuditUnitTests(unittest.TestCase):
             audit_settings()
             self.assertEqual(registry.forInterface.call_count, 2)
         audit._settings_cache.clear()
+
+    def test_removed_cleans_the_object_repository(self):
+        repository = MagicMock()
+        event = MagicMock()
+        with patch(
+            "zopyx.plone.persistentlogger.audit.get_repository",
+            return_value=repository,
+        ) as get_repository:
+            audit_object_removed(self.context, event)
+        get_repository.assert_called_once_with(self.context)
+        repository.remove_object.assert_called_once_with()
+
+    def test_settings_cache_is_isolated_by_stable_site_identity(self):
+        first_settings = Settings()
+        second_settings = Settings()
+        first_settings.enabled = True
+        site_a = SimpleNamespace(getPhysicalPath=lambda: ("", "site-a"))
+        site_b = SimpleNamespace(getPhysicalPath=lambda: ("", "site-b"))
+        first_registry = MagicMock(forInterface=MagicMock(return_value=first_settings))
+        second_registry = MagicMock(
+            forInterface=MagicMock(return_value=second_settings)
+        )
+        with (
+            patch.object(audit, "getSite", side_effect=(site_a, site_b, site_a)),
+            patch.object(
+                audit,
+                "getUtility",
+                side_effect=(first_registry, second_registry),
+            ),
+        ):
+            first = audit_settings()
+            second = audit_settings()
+            same_site_wrapper = audit_settings()
+        self.assertIs(first, first_settings)
+        self.assertIs(second, second_settings)
+        self.assertIs(same_site_wrapper, first_settings)
+        self.assertEqual(first_registry.forInterface.call_count, 1)
+        self.assertEqual(second_registry.forInterface.call_count, 1)
 
     def test_actor_fallback_on_missing_user(self):
         settings = Settings()

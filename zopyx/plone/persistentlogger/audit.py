@@ -23,6 +23,8 @@ from zope.interface import implementer
 from zopyx.plone.persistentlogger.api import log_event
 from zopyx.plone.persistentlogger.interfaces import IAuditLoggingSettings
 from zopyx.plone.persistentlogger.serialization import redact_sensitive
+from zopyx.plone.persistentlogger.site_identity import stable_site_key
+from zopyx.plone.persistentlogger.storage import get_repository
 
 SNAPSHOT_KEY = "zopyx.plone.persistentlogger.connector.audit.snapshot"
 
@@ -41,7 +43,12 @@ _METADATA_FIELDS = (
 
 # Registry lookups are expensive on every content event; cache the
 # resolved settings proxy per site and invalidate on record changes.
-_settings_cache: dict[int, Any] = {}
+_settings_cache: dict[tuple[str, ...], Any] = {}
+
+
+def _site_key() -> tuple[str, ...]:
+    """Return the stable key used for the current site's settings cache."""
+    return stable_site_key(getSite())
 
 
 @implementer(IAuditLoggingSettings)
@@ -54,7 +61,7 @@ class _Settings:
 
 def audit_settings() -> Any:
     """Return registry settings; fallback only when no registry exists yet."""
-    site_key = id(getSite())
+    site_key = _site_key()
     cached = _settings_cache.get(site_key)
     if cached is not None:
         return cached
@@ -180,3 +187,14 @@ def audit_object_modified(obj: Any, event: Any) -> None:
         event_type="edit",
         details={"changes": changes, "metadata": current},
     )
+
+
+def audit_object_removed(obj: Any, event: Any) -> None:
+    """Remove external audit rows when their owning object is deleted.
+
+    The repository derives the exact object UID from ``obj`` and scopes every
+    delete by that UID.  Cleanup errors are intentionally allowed to abort the
+    surrounding deletion transaction instead of silently leaving an orphan.
+    """
+    del event
+    get_repository(obj).remove_object()
