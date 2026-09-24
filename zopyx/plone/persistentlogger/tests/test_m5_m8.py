@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import unittest
 from datetime import UTC, datetime
 from pathlib import Path
@@ -134,18 +135,72 @@ class APIAndScopeTests(unittest.TestCase):
         rolemap = (
             Path(__file__).parents[1] / "profiles" / "default" / "rolemap.xml"
         ).read_text()
+        routes = dict(
+            re.findall(
+                r'name="([^" ]+)"[\s\S]*?permission="([^"]+)"',
+                zcml,
+            )
+        )
+        self.assertEqual(
+            {
+                name: routes[name]
+                for name in (
+                    "logger-entries",
+                    "persistent-log-data",
+                    "persistent-log-integrity",
+                    "persistent-log-retention-preview",
+                    "persistent-log-retention",
+                    "persistent-log",
+                    "persistent-log-export",
+                    "persistent-log-retention-delete",
+                    "persistent-log-api",
+                    "persistent-log-api-export",
+                    "persistent-log-api-hold",
+                )
+            },
+            {
+                "logger-entries": "zopyx.plone.persistentlogger.ViewAuditLog",
+                "persistent-log-data": "zopyx.plone.persistentlogger.ViewAuditLog",
+                "persistent-log-integrity": "cmf.ManagePortal",
+                "persistent-log-retention-preview": (
+                    "zopyx.plone.persistentlogger.ManageAuditRetention"
+                ),
+                "persistent-log-retention": (
+                    "zopyx.plone.persistentlogger.ManageAuditRetention"
+                ),
+                "persistent-log": "zopyx.plone.persistentlogger.ViewAuditLog",
+                "persistent-log-export": "zopyx.plone.persistentlogger.ExportAuditLog",
+                "persistent-log-retention-delete": (
+                    "zopyx.plone.persistentlogger.ManageAuditRetention"
+                ),
+                "persistent-log-api": "zopyx.plone.persistentlogger.ViewAuditLog",
+                "persistent-log-api-export": (
+                    "zopyx.plone.persistentlogger.ExportAuditLog"
+                ),
+                "persistent-log-api-hold": (
+                    "zopyx.plone.persistentlogger.ManageAuditHold"
+                ),
+            },
+        )
+        role_blocks = dict(
+            re.findall(
+                r'<permission[^>]+name="([^"]+)"[^>]*>(.*?)</permission>',
+                rolemap,
+                re.DOTALL,
+            )
+        )
+        roles = {
+            name: tuple(re.findall(r'<role name="([^"]+)"', block))
+            for name, block in role_blocks.items()
+        }
+        self.assertEqual(roles["View audit log"], ("Manager", "Auditor"))
         for permission in (
-            "ViewAuditLog",
-            "ExportAuditLog",
-            "ManageAuditRetention",
-            "ManageAuditHold",
-            "CreateAuditDemo",
+            "Export audit log",
+            "Manage audit retention",
+            "Manage audit legal holds",
+            "Create audit demo data",
         ):
-            self.assertIn(f"zopyx.plone.persistentlogger.{permission}", zcml)
-        self.assertIn('name="View audit log"', rolemap)
-        self.assertIn('name="Export audit log"', rolemap)
-        self.assertIn('<role name="Auditor" />', rolemap)
-        self.assertEqual(rolemap.count('<role name="Auditor" />'), 1)
+            self.assertEqual(roles[permission], ("Manager",))
 
     def test_export_requires_its_separate_permission(self):
         request = Request()
@@ -164,7 +219,62 @@ class APIAndScopeTests(unittest.TestCase):
         self.assertEqual(payload, b'{"records": []}')
         self.assertEqual(request.headers["Content-Type"], "application/json")
 
-    def test_site_quota_is_hard_and_export_does_not_truncate(self):
+    def test_api_rejects_repeated_and_malformed_query_values(self):
+        context = SimpleNamespace(
+            portal_membership=SimpleNamespace(checkPermission=lambda *_: True)
+        )
+        for params in (
+            {"event_id": ["first", "second"]},
+            {"limit": True},
+            {"offset": "1.5"},
+        ):
+            request = Request(params)
+            with patch(
+                "zopyx.plone.persistentlogger.browser.api.get_repository",
+                return_value=self.repository,
+            ):
+                payload = json.loads(AuditAPI(context, request)())
+            self.assertEqual(request.status, 400)
+            self.assertEqual(payload["error"]["code"], "invalid_query")
+
+    def test_api_converts_backend_errors_to_safe_responses(self):
+        request = Request()
+        context = SimpleNamespace(
+            portal_membership=SimpleNamespace(checkPermission=lambda *_: True)
+        )
+        repository = MagicMock()
+        repository.events.side_effect = RuntimeError("database password leaked")
+        with patch(
+            "zopyx.plone.persistentlogger.browser.api.get_repository",
+            return_value=repository,
+        ):
+            payload = json.loads(AuditAPI(context, request)())
+        self.assertEqual(request.status, 500)
+        self.assertEqual(payload["error"]["code"], "internal_error")
+        self.assertNotIn("password", json.dumps(payload).lower())
+
+    def test_hold_rejects_repeated_event_ids_and_invalid_release_id(self):
+        context = SimpleNamespace(
+            portal_membership=SimpleNamespace(checkPermission=lambda *_: True)
+        )
+        repeated = Request(
+            {"action": "create", "event_ids": ["one", "two"], "reason": "valid reason"},
+            method="POST",
+        )
+        with patch("zopyx.plone.persistentlogger.browser.api.CheckAuthenticator"):
+            payload = json.loads(HoldAPI(context, repeated)())
+        self.assertEqual(repeated.status, 400)
+        self.assertEqual(payload["error"]["code"], "invalid_hold")
+
+        malformed = Request(
+            {"action": "release", "hold_id": "not-a-uuid", "reason": "valid reason"},
+            method="POST",
+        )
+        with patch("zopyx.plone.persistentlogger.browser.api.CheckAuthenticator"):
+            payload = json.loads(HoldAPI(context, malformed)())
+        self.assertEqual(malformed.status, 400)
+        self.assertEqual(payload["error"]["code"], "invalid_hold")
+
         other = SimpleNamespace()
         repository = MagicMock()
         repository.events.return_value = self.repository.events.return_value

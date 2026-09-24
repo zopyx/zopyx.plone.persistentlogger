@@ -42,8 +42,17 @@ def _int_param(request, name, default):
     value = _param(request, name)
     if value is None or value == "":
         return default
+    if isinstance(value, bool) or not isinstance(value, (int, str)):
+        raise QueryError(f"invalid integer parameter {name!r}")
     try:
-        return int(value)
+        text = str(value).strip()
+        if (
+            not text
+            or (text[0] in "+-" and not text[1:].isdigit())
+            or (text[0] not in "+-" and not text.isdigit())
+        ):
+            raise ValueError
+        return int(text)
     except (TypeError, ValueError) as exc:
         raise QueryError(f"invalid integer parameter {name!r}") from exc
 
@@ -126,8 +135,13 @@ class Logging(BrowserView):
         """
         request = self.request
         try:
-            conditions = parse_filter_model(_param(request, "filterModel"))
-            sort = parse_sort_model(_param(request, "sortModel")) or default_sort()
+            filter_model = _param(request, "filterModel")
+            sort_model = _param(request, "sortModel")
+            for name, value in (("filterModel", filter_model), ("sortModel", sort_model)):
+                if isinstance(value, str) and len(value) > MAX_QUERY_PAYLOAD_LENGTH:
+                    raise QueryError(f"{name} is too large")
+            conditions = parse_filter_model(filter_model)
+            sort = parse_sort_model(sort_model) or default_sort()
             offset = max(_int_param(request, "startRow", 0), 0)
             end_row = _int_param(request, "endRow", -1)
             quick = str(_param(request, "quick") or "")

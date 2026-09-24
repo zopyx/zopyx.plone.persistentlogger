@@ -165,6 +165,7 @@ class BrowserLoggerTests(unittest.TestCase):
         adapter.entries = entries
         repository = MagicMock()
         repository.search.return_value = SimpleNamespace(rows=entries, total=2)
+        self.request.method = "GET"
         with (
             patch(
                 "zopyx.plone.persistentlogger.browser.logger.IPersistentLogger",
@@ -186,6 +187,7 @@ class BrowserLoggerTests(unittest.TestCase):
         adapter = MagicMock()
         self.context.plone_utils = MagicMock()
         self.view.template = MagicMock(return_value="rendered")
+        self.request.method = "POST"
         with (
             patch(
                 "zopyx.plone.persistentlogger.browser.logger.IPersistentLogger",

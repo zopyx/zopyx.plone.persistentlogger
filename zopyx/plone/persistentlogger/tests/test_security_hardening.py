@@ -9,6 +9,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+from ..browser.integrity import IntegrityHealthView
 from ..browser.logger import Logging
 from ..browser.retention import Export, Retention
 
@@ -58,6 +59,13 @@ class BrowserHardeningTests(unittest.TestCase):
         self.assertEqual(request.response.status, 400)
         self.assertEqual(payload["error"]["code"], "invalid_number")
 
+    def test_retention_preview_rejects_repeated_numeric_input(self):
+        request = Request({"older_than_days": ["30", "60"]}, method="POST")
+        with patch("zopyx.plone.persistentlogger.browser.retention.CheckAuthenticator"):
+            payload = json.loads(Retention(self.context, request).preview())
+        self.assertEqual(request.response.status, 400)
+        self.assertEqual(payload["error"]["code"], "invalid_number")
+
     def test_retention_delete_rejects_malformed_uuid(self):
         request = Request({"operation_id": "not-a-uuid"}, method="POST")
         with patch("zopyx.plone.persistentlogger.browser.retention.CheckAuthenticator"):
@@ -71,7 +79,32 @@ class BrowserHardeningTests(unittest.TestCase):
         self.assertEqual(request.response.status, 400)
         self.assertEqual(json.loads(payload)["error"]["code"], "invalid_export")
 
-    def test_unpaged_entries_endpoint_is_bounded_and_deprecated(self):
+    def test_integrity_health_is_read_only_and_safe_on_backend_failure(self):
+        request = Request(method="POST")
+        with patch(
+            "zopyx.plone.persistentlogger.browser.integrity.verify_repository"
+        ) as verify:
+            payload = json.loads(IntegrityHealthView(self.context, request)())
+        self.assertEqual(request.response.status, 405)
+        self.assertEqual(payload["error"]["code"], "method_not_allowed")
+        verify.assert_not_called()
+
+        request = Request()
+        with (
+            patch(
+                "zopyx.plone.persistentlogger.browser.integrity.get_repository",
+                side_effect=RuntimeError("database token leaked"),
+            ),
+            patch(
+                "zopyx.plone.persistentlogger.browser.integrity.verify_repository"
+            ) as verify,
+        ):
+            payload = json.loads(IntegrityHealthView(self.context, request)())
+        self.assertEqual(request.response.status, 500)
+        self.assertEqual(payload["error"]["code"], "internal_error")
+        self.assertNotIn("token", json.dumps(payload).lower())
+        verify.assert_not_called()
+
         request = Request()
         repository = MagicMock()
         repository.search.return_value = SimpleNamespace(rows=(), total=2)

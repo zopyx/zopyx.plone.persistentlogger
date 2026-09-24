@@ -45,8 +45,17 @@ def _integer(value: object, field: str) -> int:
     """Parse a strict decimal form value."""
     if value is None or value == "":
         raise ValueError(f"{field} is required")
+    if isinstance(value, bool) or not isinstance(value, (int, str)):
+        raise ValueError(f"{field} must be an integer")
+    text = str(value).strip()
+    if (
+        not text
+        or (text[0] in "+-" and not text[1:].isdigit())
+        or (text[0] not in "+-" and not text.isdigit())
+    ):
+        raise ValueError(f"{field} must be an integer")
     try:
-        return int(str(value))
+        return int(text)
     except (TypeError, ValueError) as exc:
         raise ValueError(f"{field} must be an integer") from exc
 
@@ -93,7 +102,7 @@ class Retention(BrowserView):
             return "POST required"
         CheckAuthenticator(self.request)
         try:
-            operation_id = UUID(str(self.request.form.get("operation_id", "")))
+            operation_id = UUID(str(_request_value(self.request, "operation_id", "")))
         except (TypeError, ValueError, AttributeError):
             return _error_response(
                 self.request, 400, "invalid_uuid", "operation_id must be a valid UUID"
@@ -168,10 +177,18 @@ class RetentionGUI(BrowserView):
 
     @property
     def preview(self) -> DeletionPreview | None:
-        operation_id = self.request.form.get("operation_id")
+        try:
+            operation_id = _request_value(self.request, "operation_id")
+        except ValueError:
+            return None
         if not operation_id:
             return None
-        return self.repository.get_preview(operation_id)
+        try:
+            return self.repository.get_preview(operation_id)
+        except TypeError:
+            return None
+        except ValueError:
+            return None
 
     @property
     def preview_events(self) -> list[dict[str, Any]]:
@@ -191,8 +208,16 @@ class RetentionGUI(BrowserView):
         current = self.policy
         return RetentionPolicy(
             enabled=current.enabled,
-            older_than_days=int(form.get("older_than_days", current.older_than_days)),
-            max_entries=int(form.get("max_entries", current.max_entries)),
+            older_than_days=_integer(
+                _request_value(
+                    self.request, "older_than_days", current.older_than_days
+                ),
+                "older_than_days",
+            ),
+            max_entries=_integer(
+                _request_value(self.request, "max_entries", current.max_entries),
+                "max_entries",
+            ),
         )
 
     def __call__(self):
@@ -214,9 +239,17 @@ class RetentionGUI(BrowserView):
     def _save_policy(self, form) -> None:
         current = self.policy
         policy = RetentionPolicy(
-            enabled=str(form.get("enabled", "")) == "1",
-            older_than_days=int(form.get("older_than_days", current.older_than_days)),
-            max_entries=int(form.get("max_entries", current.max_entries)),
+            enabled=str(_request_value(self.request, "enabled", "")) == "1",
+            older_than_days=_integer(
+                _request_value(
+                    self.request, "older_than_days", current.older_than_days
+                ),
+                "older_than_days",
+            ),
+            max_entries=_integer(
+                _request_value(self.request, "max_entries", current.max_entries),
+                "max_entries",
+            ),
         )
         actor = plone.api.user.get_current().getUserName()
         RetentionService(self.context, self.repository).set_policy(

@@ -190,6 +190,10 @@ class EntriesViewTests(unittest.TestCase):
         self.assertEqual(request.response.status, 400)
         self.assertIn("startRow", payload["error"])
 
+        payload, request = self.call({"startRow": ["0", "1"]})
+        self.assertEqual(request.response.status, 400)
+        self.assertIn("invalid startRow parameter", payload["error"])
+
         payload, request = self.call({"sortModel": json.dumps([{"colId": "nope"}])})
         self.assertEqual(request.response.status, 400)
         self.assertIn("unknown sort column", payload["error"])
