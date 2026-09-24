@@ -25,6 +25,8 @@ from zopyx.plone.persistentlogger.storage import (
 
 #: Hard upper bound for one page handed to the grid.
 MAX_PAGE_SIZE = 500
+#: Maximum serialized filter/sort payload accepted from the grid.
+MAX_QUERY_PAYLOAD_LENGTH = 64 * 1024
 #: Compatibility endpoint limit; callers should use the paged data endpoint.
 MAX_LEGACY_ENTRIES = 10_000
 
@@ -43,7 +45,7 @@ def _int_param(request, name, default):
     if value is None or value == "":
         return default
     if isinstance(value, bool) or not isinstance(value, (int, str)):
-        raise QueryError(f"invalid integer parameter {name!r}")
+        raise QueryError(f"invalid {name} parameter")
     try:
         text = str(value).strip()
         if (
@@ -137,7 +139,10 @@ class Logging(BrowserView):
         try:
             filter_model = _param(request, "filterModel")
             sort_model = _param(request, "sortModel")
-            for name, value in (("filterModel", filter_model), ("sortModel", sort_model)):
+            for name, value in (
+                ("filterModel", filter_model),
+                ("sortModel", sort_model),
+            ):
                 if isinstance(value, str) and len(value) > MAX_QUERY_PAYLOAD_LENGTH:
                     raise QueryError(f"{name} is too large")
             conditions = parse_filter_model(filter_model)

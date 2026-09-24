@@ -191,9 +191,7 @@ class StorageSchemaTests(unittest.TestCase):
 
     def test_storage_settings_cache_isolated_by_physical_site_path(self):
         first = type("Settings", (), {"backend": "zodb", "database_url": ""})()
-        second = type(
-            "Settings", (), {"backend": "rdbms", "database_url": "url"}
-        )()
+        second = type("Settings", (), {"backend": "rdbms", "database_url": "url"})()
         first_registry = mock.MagicMock(forInterface=mock.MagicMock(return_value=first))
         second_registry = mock.MagicMock(
             forInterface=mock.MagicMock(return_value=second)

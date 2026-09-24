@@ -15,9 +15,7 @@ _ = MessageFactory("zopyx.plone.persistentlogger")
 class AuditLoggingSettingsForm(RegistryEditForm):
     schema = IAuditLoggingSettings
     label = _("Audit logging settings")
-    description = _(
-        "Enable audit logging and choose which content types are recorded."
-    )
+    description = _("Enable audit logging and choose which content types are recorded.")
 
 
 AuditLoggingSettingsView = layout.wrap_form(

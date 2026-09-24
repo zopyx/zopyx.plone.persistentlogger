@@ -214,12 +214,12 @@ class GovernanceTests(unittest.TestCase):
             "comment": "legacy",
         }
         self.assertIsNotNone(self.repository.get(str(legacy_id)))
-        self.assertFalse(
-            any(key == datetime(2020, 1, 1) for key in self.repository.annotations)
-        )
+        # Reads are side-effect free; explicit migrations, not lookup, normalize
+        # legacy annotation keys.
+        self.assertIn(datetime(2020, 1, 1), self.repository.annotations)
 
         preview = self.repository.preview_delete(configured, self.now)
-        del self.repository.annotations[str(legacy_id)]
+        del self.repository.annotations[datetime(2020, 1, 1)]
         result = self.repository.delete_preview(preview, "remove obsolete legacy event")
         self.assertEqual((result.deleted, result.missing), (0, 1))
 

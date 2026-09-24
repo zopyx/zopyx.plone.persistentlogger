@@ -43,20 +43,6 @@ CHAIN_HEAD_KEY = "zopyx.plone.persistentlogger.connector.chain-head"
 class AnnotationRepository(BaseLogStorage):
     """Repository preserving legacy annotation records while adding typed APIs."""
 
-    def delete_and_journal(
-        self, preview: DeletionPreview, reason: str, actor: str
-    ) -> DeletionResult:
-        """Keep deletion and evidence in the surrounding ZODB transaction."""
-        savepoint = transaction.savepoint()
-        try:
-            return super().delete_and_journal(preview, reason, actor)
-        except Exception:
-            # The caller owns the outer transaction.  Rolling back this
-            # savepoint removes both annotation mutations without aborting
-            # unrelated changes in that transaction.
-            savepoint.rollback()
-            raise
-
     @property
     def annotations(self) -> Any:
         """Return the annotation store without changing it on read."""
@@ -157,6 +143,22 @@ class AnnotationRepository(BaseLogStorage):
         if deleted:
             store._p_changed = True
         return deleted, missing
+
+    def _remove_all_events(self) -> None:
+        """Remove event records for internal migration/test cleanup only."""
+        store = self.annotations
+        keys = [
+            key
+            for key, value in list(store.items())
+            if isinstance(value, dict) and event_id_of(value) is not None
+        ]
+        for key in keys:
+            del store[key]
+        if keys:
+            store._p_changed = True
+        annotations = IAnnotations(self.context)
+        if CHAIN_HEAD_KEY in annotations:
+            del annotations[CHAIN_HEAD_KEY]
 
     # ------------------------------------------------------------------
     # governance journal primitives

@@ -185,6 +185,7 @@ class BrowserHardeningTests(unittest.TestCase):
             payload = json.loads(Retention(self.context, request).delete())
         self.assertEqual(request.response.status, 400)
         self.assertEqual(payload["error"]["code"], "invalid_uuid")
+
     def test_export_rejects_unknown_format_as_structured_bad_request(self):
         request = Request({"format": "xml"})
         payload = Export(self.context, request)()

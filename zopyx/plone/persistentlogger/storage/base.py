@@ -513,11 +513,6 @@ class BaseLogStorage(ABC):
         """Return one event record by id or ``None``."""
         return self._load_event(str(event_id))
 
-    def clear(self) -> None:
-        """Remove every event record of this object."""
-        self._remove_all_events()
-        self._reset_event_head()
-
     def last_digest(self) -> str:
         """Return the integrity digest of the append-only event head."""
         records = [entry for entry in self._load_events() if isinstance(entry, dict)]

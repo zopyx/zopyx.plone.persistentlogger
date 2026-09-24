@@ -51,10 +51,6 @@ class LogRepository(Protocol):
         """Return one event by identifier, if it exists."""
         ...
 
-    def clear(self) -> None:
-        """Remove event records while retaining governance state."""
-        ...
-
     def last_digest(self) -> str:
         """Return the current event-chain head digest."""
         ...

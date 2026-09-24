@@ -360,6 +360,7 @@ class StorageContractMixin:
             RetentionPolicy(enabled=True, older_than_days=365), self.now
         )
         self.repository._delete_events((UUID(expired["uuid"]),))
+        self.repository._relink_event_chain(self.repository.events())
         self.append(self.now, "recreated")
         result = self.repository.delete_preview(preview, "retention policy cleanup")
         self.assertEqual((result.requested, result.eligible), (1, 1))
