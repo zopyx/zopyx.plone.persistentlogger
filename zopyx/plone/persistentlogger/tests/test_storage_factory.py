@@ -5,6 +5,8 @@ from __future__ import annotations
 import unittest
 from unittest.mock import MagicMock, patch
 
+from zope.component import ComponentLookupError
+
 from ..storage import factory
 from ..storage.base import StorageConfigurationError
 from ..storage.factory import (
@@ -64,7 +66,9 @@ class ResolveSettingsTests(unittest.TestCase):
         self.assertEqual(resolve_database_url(settings()), "")
 
     def test_fallback_settings_are_used_without_a_registry(self):
-        with patch.object(factory, "getUtility", side_effect=Exception("no registry")):
+        with patch.object(
+            factory, "getUtility", side_effect=ComponentLookupError("no registry")
+        ):
             current = storage_settings()
         self.assertEqual(current.backend, BACKEND_ZODB)
         self.assertEqual(current.database_url, "")

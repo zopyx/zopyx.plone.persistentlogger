@@ -9,6 +9,7 @@ and the manager facing browser views, which are backend agnostic.
 from __future__ import annotations
 
 import csv
+import inspect
 import io
 import json
 import unittest
@@ -42,10 +43,14 @@ from zopyx.plone.persistentlogger.models import (
     RetentionPolicy,
     Severity,
 )
-from zopyx.plone.persistentlogger.retention import RetentionService
+from zopyx.plone.persistentlogger.retention import (
+    RetentionExecutionError,
+    RetentionService,
+)
 from zopyx.plone.persistentlogger.serialization import (
     canonical_json,
     event_digest,
+    event_row,
     json_default,
 )
 from zopyx.plone.persistentlogger.storage import (
@@ -134,6 +139,55 @@ class GovernanceTests(unittest.TestCase):
         second = self.event(comment="second")
         self.assertNotEqual(event_digest(first), event_digest(second))
 
+    def test_events_normalize_severity_and_redact_json_details(self):
+        event = LogEvent(
+            comment="security event",
+            severity=" WARNING ",
+            created_at=self.now,
+            details={
+                "password": "do-not-store",
+                "nested": [{"api_token": "also-secret", "safe": (1, 2)}],
+            },
+        )
+        self.assertEqual(event.severity, Severity.WARNING)
+        self.assertEqual(
+            event.details,
+            {
+                "password": "[REDACTED]",
+                "nested": [
+                    {"api_token": "[REDACTED]", "safe": [1, 2]},
+                ],
+            },
+        )
+        row = event_row(event)
+        self.assertEqual(row["details"], event.details)
+        self.assertEqual(row["severity"], "warning")
+        exported = export_events(
+            [
+                {
+                    "uuid": str(uuid4()),
+                    "date": self.now,
+                    "comment": "legacy payload",
+                    "details_raw": {"password": "legacy-secret"},
+                }
+            ],
+            "json",
+        ).decode("utf-8")
+        self.assertIn("[REDACTED]", exported)
+        self.assertNotIn("legacy-secret", exported)
+        with self.assertRaises(ValueError):
+            LogEvent(comment="event", severity="not-a-severity", created_at=self.now)
+        with self.assertRaises(ValueError):
+            LogEvent(
+                comment="event",
+                details={"unsupported": object()},
+                created_at=self.now,
+            )
+        parameters = inspect.signature(LogEvent).parameters
+        self.assertNotIn("request_id", parameters)
+        self.assertNotIn("ip_address", parameters)
+        self.assertNotIn("user_agent", parameters)
+
     def test_object_uid_and_legacy_event_dates(self):
         self.assertEqual(object_uid(self.context), "https://example.test/context")
         with patch("plone.uuid.interfaces.IUUID", return_value="resolved-uid"):
@@ -211,6 +265,15 @@ class GovernanceTests(unittest.TestCase):
             )
         with self.assertRaises(StorageConfigurationError):
             get_repository(self.context, settings=MagicMock(backend="unknown"))
+
+    def test_runtime_registry_errors_do_not_switch_to_zodb(self):
+        storage_factory.clear_cache()
+        with patch(
+            "zopyx.plone.persistentlogger.storage.factory.getUtility",
+            side_effect=RuntimeError("registry unavailable"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "registry unavailable"):
+                storage_factory.storage_settings()
 
     def test_public_api(self):
         with patch(
@@ -461,6 +524,22 @@ class GovernanceTests(unittest.TestCase):
         )
         self.assertEqual(result.deleted, 1)
         self.assertEqual(self.repository.events(), [])
+
+    def test_retention_governance_failure_is_explicit(self):
+        self.repository.append(self.event(self.now - timedelta(days=400), "old"))
+        preview = self.repository.preview_delete(
+            RetentionPolicy(enabled=True, older_than_days=30), self.now
+        )
+        with patch.object(
+            self.repository,
+            "record_governance",
+            side_effect=RuntimeError("journal unavailable"),
+        ):
+            with self.assertRaisesRegex(RetentionExecutionError, "journal unavailable"):
+                RetentionService(self.context, self.repository).execute(
+                    preview, "retention policy cleanup", "manager"
+                )
+        self.assertEqual(len(self.repository.events()), 0)
 
     def test_export_request_validates_its_limits(self):
         with self.assertRaisesRegex(ValueError, "unsupported export format"):

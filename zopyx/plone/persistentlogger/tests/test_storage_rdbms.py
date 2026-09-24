@@ -110,7 +110,7 @@ class RdbmsStorageContractTests(StorageContractMixin, unittest.TestCase):
         self.assertEqual(stored["created_at"].utcoffset().total_seconds(), 0)
 
     def test_details_must_be_json_serializable(self):
-        with self.assertRaises(TypeError):
+        with self.assertRaises(ValueError):
             self.append(comment="not serializable", details={"bad": object()})
 
 

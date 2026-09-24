@@ -9,6 +9,20 @@ from .models import DeletionPreview, DeletionResult, RetentionPolicy, utc_now
 from .storage import BaseLogStorage, get_repository
 
 
+class RetentionExecutionError(RuntimeError):
+    """Report a deletion completed without a governance journal entry.
+
+    The current storage contract exposes deletion and journaling as separate
+    operations. Callers must treat this as an indeterminate governance state,
+    not as a successful retention operation; ``result`` records what deletion
+    returned before the journal failure.
+    """
+
+    def __init__(self, result: DeletionResult, cause: Exception):
+        self.result = result
+        super().__init__(f"retention deletion was not journaled: {cause}")
+
+
 class RetentionService:
     """Apply a retention policy to one Plone object."""
 
@@ -26,17 +40,20 @@ class RetentionService:
         self, preview: DeletionPreview, reason: str, actor: str
     ) -> DeletionResult:
         result = self.repository.delete_preview(preview, reason)
-        self.repository.record_governance(
-            "retention_delete",
-            actor,
-            reason,
-            operation_id=str(result.operation_id),
-            requested=result.requested,
-            eligible=result.eligible,
-            deleted=result.deleted,
-            missing=result.missing,
-            failed=result.failed,
-        )
+        try:
+            self.repository.record_governance(
+                "retention_delete",
+                actor,
+                reason,
+                operation_id=str(result.operation_id),
+                requested=result.requested,
+                eligible=result.eligible,
+                deleted=result.deleted,
+                missing=result.missing,
+                failed=result.failed,
+            )
+        except Exception as exc:
+            raise RetentionExecutionError(result, exc) from exc
         return result
 
     def set_policy(self, policy: RetentionPolicy, actor: str, reason: str) -> None:

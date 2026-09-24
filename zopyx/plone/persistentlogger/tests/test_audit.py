@@ -7,6 +7,7 @@ from datetime import date
 from unittest.mock import MagicMock, patch
 
 from persistent import Persistent
+from zope.component import ComponentLookupError
 
 from zopyx.plone.persistentlogger import audit
 from zopyx.plone.persistentlogger.audit import (
@@ -72,7 +73,7 @@ class AuditUnitTests(unittest.TestCase):
     def test_settings_fallback_and_is_audited(self):
         with patch(
             "zopyx.plone.persistentlogger.audit.getUtility",
-            side_effect=Exception("no registry"),
+            side_effect=ComponentLookupError("no registry"),
         ):
             self.assertFalse(audit_settings().enabled)
             self.assertFalse(is_audited(self.context))
@@ -93,6 +94,14 @@ class AuditUnitTests(unittest.TestCase):
             settings.content_types = None
             self.assertTrue(is_audited(self.context))
 
+    def test_registry_runtime_errors_are_not_treated_as_disabled(self):
+        with patch(
+            "zopyx.plone.persistentlogger.audit.getUtility",
+            side_effect=RuntimeError("registry unavailable"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "registry unavailable"):
+                audit_settings()
+
     def test_metadata_and_diff_helpers(self):
         self.assertEqual(_jsonable(None), None)
         self.assertEqual(_jsonable(1), 1)
@@ -100,6 +109,10 @@ class AuditUnitTests(unittest.TestCase):
         self.assertEqual(_jsonable(("a", "b")), ["a", "b"])
         self.assertEqual(_jsonable({"k": ("a",)}), {"k": ["a"]})
         self.assertEqual(_jsonable(date(2026, 1, 1)), "2026-01-01")
+        self.assertEqual(
+            _jsonable({"password": "secret", "nested": [{"token": "value"}]}),
+            {"password": "[REDACTED]", "nested": [{"token": "[REDACTED]"}]},
+        )
 
         class Broken(Persistent):
             """A getter that raises must not break the snapshot."""

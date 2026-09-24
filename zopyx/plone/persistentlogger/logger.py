@@ -10,7 +10,7 @@ from BTrees.OOBTree import OOBTree
 from DateTime import DateTime
 from zope.annotation.interfaces import IAnnotations
 
-from .models import LogEvent, Severity
+from .models import LogEvent
 from .storage import event_date as _event_date
 from .storage import get_repository
 
@@ -69,14 +69,9 @@ class PersistentLoggerAdapter:
         """Add a log entry using the versioned repository schema."""
         current_user = plone.api.user.get_current().getUserName()
         username = username or current_user
-        try:
-            severity = Severity(level)
-        except ValueError:
-            # Preserve legacy custom levels while new callers use Severity.
-            severity = level
         event = LogEvent(
             comment=comment,
-            severity=severity,
+            severity=level,
             actor=username,
             info_url=info_url,
             details=details,
@@ -96,5 +91,14 @@ class PersistentLoggerAdapter:
         return IAnnotations(self.context).get(LOG_LAST_DATE)
 
     def clear(self):
-        """Clear all logger entries"""
-        get_repository(self.context).clear()
+        """Reject the deprecated ungoverned delete operation.
+
+        Deprecated callers must use the retention API, which requires a
+        server-side preview, reason, actor and governance journal entry.
+        Keeping this compatibility method as a hard failure prevents legacy
+        code from silently bypassing those controls.
+        """
+        raise RuntimeError(
+            "PersistentLoggerAdapter.clear() is deprecated; use the retention "
+            "service with a governed preview instead"
+        )

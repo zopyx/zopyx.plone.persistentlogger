@@ -16,12 +16,13 @@ from typing import Any
 import plone.api
 from plone.registry.interfaces import IRegistry
 from zope.annotation.interfaces import IAnnotations
-from zope.component import getUtility
+from zope.component import ComponentLookupError, getUtility
 from zope.component.hooks import getSite
 from zope.interface import implementer
 
 from zopyx.plone.persistentlogger.api import log_event
 from zopyx.plone.persistentlogger.interfaces import IAuditLoggingSettings
+from zopyx.plone.persistentlogger.serialization import redact_sensitive
 
 SNAPSHOT_KEY = "zopyx.plone.persistentlogger.connector.audit.snapshot"
 
@@ -52,7 +53,7 @@ class _Settings:
 
 
 def audit_settings() -> Any:
-    """Return the registry settings or a disabled fallback (cached)."""
+    """Return registry settings; fallback only when no registry exists yet."""
     site_key = id(getSite())
     cached = _settings_cache.get(site_key)
     if cached is not None:
@@ -60,7 +61,7 @@ def audit_settings() -> Any:
     try:
         registry = getUtility(IRegistry)
         settings = registry.forInterface(IAuditLoggingSettings, check=False)
-    except Exception:
+    except ComponentLookupError:
         return _Settings()
     _settings_cache[site_key] = settings
     return settings
@@ -84,6 +85,7 @@ def is_audited(obj: Any) -> bool:
 
 
 def _jsonable(value: Any) -> Any:
+    value = redact_sensitive(value)
     if isinstance(value, (str, int, float, bool)) or value is None:
         return value
     if isinstance(value, (list, tuple)):

@@ -13,7 +13,10 @@ from unittest.mock import MagicMock, patch
 
 from zopyx.plone.persistentlogger import file_logger
 from zopyx.plone.persistentlogger.browser.logger import Logging, json_serial
-from zopyx.plone.persistentlogger.logger import IPersistentLogger
+from zopyx.plone.persistentlogger.logger import (
+    IPersistentLogger,
+    PersistentLoggerAdapter,
+)
 
 from .base import TestBase
 
@@ -26,8 +29,9 @@ class BasicTests(TestBase):
         logger.log("error", "error")
         logger.log("info", "info")
         self.assertEqual(len(logger), 2)
-        logger.clear()
-        self.assertEqual(len(logger), 0)
+        with self.assertRaisesRegex(RuntimeError, "retention"):
+            logger.clear()
+        self.assertEqual(len(logger), 2)
         self.assertEqual(logger.get_last_user(), "test-user")
 
     def test_entries(self):
@@ -65,12 +69,9 @@ class BasicTests(TestBase):
     def test_legacy_level_filters_and_annotations(self):
         logger = IPersistentLogger(self.portal)
         logger.annotations
-        logger.log("custom", level="custom", username="explicit")
-        self.assertEqual(logger.entries[0]["level"], "custom")
-        entries = type(logger).entries.fget(logger, min_datetime=datetime.datetime.min)
-        self.assertEqual(len(entries), 1)
-        entries = type(logger).entries.fget(logger, max_datetime=datetime.datetime.max)
-        self.assertEqual(len(entries), 1)
+        with self.assertRaises(ValueError):
+            logger.log("custom", level="custom", username="explicit")
+        self.assertEqual(len(logger), 0)
 
     def test_zz_login_helper(self):
         self.login("god")
@@ -125,6 +126,19 @@ class FileLoggerTests(unittest.TestCase):
         self.assertIs(result, logger)
         logger.add.assert_not_called()
         logger.info.assert_not_called()
+
+
+class LegacyAdapterTests(unittest.TestCase):
+    def test_clear_cannot_bypass_retention_governance(self):
+        repository = MagicMock()
+        adapter = PersistentLoggerAdapter(MagicMock())
+        with patch(
+            "zopyx.plone.persistentlogger.logger.get_repository",
+            return_value=repository,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "retention"):
+                adapter.clear()
+        repository.clear.assert_not_called()
 
 
 class BrowserLoggerTests(unittest.TestCase):
@@ -236,5 +250,6 @@ def test_suite():
     suite = TestSuite()
     suite.addTest(loader.loadTestsFromTestCase(BasicTests))
     suite.addTest(loader.loadTestsFromTestCase(FileLoggerTests))
+    suite.addTest(loader.loadTestsFromTestCase(LegacyAdapterTests))
     suite.addTest(loader.loadTestsFromTestCase(BrowserLoggerTests))
     return suite

@@ -13,7 +13,7 @@ import os
 from typing import Any
 
 from plone.registry.interfaces import IRegistry
-from zope.component import getUtility
+from zope.component import ComponentLookupError, getUtility
 from zope.component.hooks import getSite
 
 from ..interfaces import IStorageSettings
@@ -58,7 +58,7 @@ _settings_cache: dict[int, Any] = {}
 
 
 def storage_settings() -> Any:
-    """Return the storage settings proxy, or a ZODB fallback."""
+    """Return settings; use ZODB fallback only before a registry exists."""
     site_key = id(getSite())
     cached = _settings_cache.get(site_key)
     if cached is not None:
@@ -66,7 +66,7 @@ def storage_settings() -> Any:
     try:
         registry = getUtility(IRegistry)
         settings = registry.forInterface(IStorageSettings, check=False)
-    except Exception:
+    except ComponentLookupError:
         return _FallbackSettings()
     _settings_cache[site_key] = settings
     return settings

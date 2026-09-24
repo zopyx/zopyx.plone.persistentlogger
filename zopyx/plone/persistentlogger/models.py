@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
 from uuid import UUID, uuid4
+
+from .serialization import sanitized_details
 
 
 class Severity(StrEnum):
@@ -16,6 +17,32 @@ class Severity(StrEnum):
     WARNING = "warning"
     ERROR = "error"
     CRITICAL = "critical"
+
+
+_SEVERITY_ALIASES = {
+    "warn": Severity.WARNING,
+    "err": Severity.ERROR,
+    "fatal": Severity.CRITICAL,
+    "crit": Severity.CRITICAL,
+    "information": Severity.INFO,
+}
+
+
+def normalize_severity(value: Severity | str) -> Severity:
+    """Normalize a severity or reject values outside the public vocabulary."""
+    if isinstance(value, Severity):
+        return value
+    if not isinstance(value, str):
+        raise ValueError(
+            "severity must be one of: debug, info, warning, error, critical"
+        )
+    normalized = value.strip().casefold()
+    try:
+        return Severity(_SEVERITY_ALIASES.get(normalized, normalized))
+    except ValueError as exc:
+        raise ValueError(
+            "severity must be one of: debug, info, warning, error, critical"
+        ) from exc
 
 
 def utc_now() -> datetime:
@@ -30,18 +57,23 @@ def require_utc(value: datetime) -> datetime:
 
 @dataclass(frozen=True, slots=True)
 class LogEvent:
+    """Validated audit event.
+
+    ``request_id``, ``ip_address`` and ``user_agent`` were removed from the
+    constructor because the storage backends never persisted them uniformly.
+    Callers that need request context must add an approved, redacted JSON
+    payload to ``details`` instead of relying on silently discarded fields.
+    """
+
     comment: str
     severity: Severity | str = Severity.INFO
     actor: str = ""
     event_type: str = "application"
     target: str = ""
     info_url: str | None = None
-    details: Mapping[str, Any] | None = None
+    details: Any = None
     created_at: datetime = field(default_factory=utc_now)
     event_id: UUID = field(default_factory=uuid4)
-    request_id: str | None = None
-    ip_address: str | None = None
-    user_agent: str | None = None
     schema_version: int = 1
     integrity_digest: str | None = None
 
@@ -56,8 +88,8 @@ class LogEvent:
             raise ValueError("target must contain at most 2048 characters")
         if self.info_url is not None and len(self.info_url) > 2048:
             raise ValueError("info_url must contain at most 2048 characters")
-        if self.details is not None and len(repr(self.details).encode()) > 65536:
-            raise ValueError("details must not exceed 64 KiB")
+        object.__setattr__(self, "severity", normalize_severity(self.severity))
+        object.__setattr__(self, "details", sanitized_details(self.details))
         object.__setattr__(self, "created_at", require_utc(self.created_at))
 
 
