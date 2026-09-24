@@ -533,14 +533,16 @@ class GovernanceTests(unittest.TestCase):
         )
         with patch.object(
             self.repository,
-            "record_governance",
+            "delete_and_journal",
             side_effect=RuntimeError("journal unavailable"),
         ):
             with self.assertRaisesRegex(RetentionExecutionError, "journal unavailable"):
                 RetentionService(self.context, self.repository).execute(
                     preview, "retention policy cleanup", "manager"
                 )
-        self.assertEqual(len(self.repository.events()), 0)
+        self.assertEqual(len(self.repository.events()), 1)
+        self.assertEqual(self.repository.journal(), [])
+        self.assertEqual(self.repository.get_preview(preview.operation_id), preview)
 
     def test_export_request_validates_its_limits(self):
         with self.assertRaisesRegex(ValueError, "unsupported export format"):

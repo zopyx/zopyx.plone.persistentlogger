@@ -412,7 +412,26 @@ class StorageContractMixin:
             [entry["comment"] for entry in other.events()], ["other expired"]
         )
 
-    # -- governance journal ------------------------------------------------
+    def test_delete_and_journal_commits_deletion_and_evidence(self):
+        self.append(self.now - timedelta(days=400), "expired")
+        self.append(self.now, "recent")
+        preview = self.repository.preview_delete(
+            RetentionPolicy(enabled=True, older_than_days=365), self.now
+        )
+        result = self.repository.delete_and_journal(
+            preview, "retention policy cleanup", "manager"
+        )
+        self.assertEqual((result.deleted, result.missing, result.failed), (1, 0, 0))
+        self.assertEqual(
+            [entry["comment"] for entry in self.repository.events()], ["recent"]
+        )
+        journal = self.repository.journal()
+        self.assertEqual(len(journal), 1)
+        self.assertEqual(journal[0]["action"], "retention_delete")
+        self.assertEqual(journal[0]["deleted"], 1)
+        self.assertIsNone(self.repository.get_preview(preview.operation_id))
+
+    # -- governance journal --------------------------------------------------
     def test_record_governance_builds_chain_and_payload(self):
         first = self.repository.record_governance(
             "retention_delete", "manager", "policy cleanup", deleted=2

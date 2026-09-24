@@ -12,12 +12,14 @@ import unittest
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 from uuid import uuid4
 
 from sqlalchemy import inspect
 from sqlmodel import Session, SQLModel, create_engine, select
 
 from ..models import LogEvent, RetentionPolicy
+from ..retention import RetentionExecutionError, RetentionService
 from ..storage.base import StorageIntegrityError, verify_event_chain
 from ..storage.rdbms import (
     EventRecord,
@@ -203,6 +205,74 @@ class RdbmsSQLiteHardeningTests(unittest.TestCase):
     def tearDown(self):
         self.engine.dispose()
         self.tmp.cleanup()
+
+    def _retention_failure(self, failure_target, failure) -> None:
+        repository = SQLRepository(Context("atomic-retention"), engine=self.engine)
+        preview_now = datetime.now(UTC)
+        repository.append(
+            LogEvent(
+                comment="expired",
+                created_at=preview_now - timedelta(days=400),
+            )
+        )
+        preview = repository.preview_delete(
+            RetentionPolicy(enabled=True, older_than_days=30),
+            preview_now,
+        )
+        with patch.object(repository, failure_target, side_effect=failure):
+            with self.assertRaisesRegex(
+                RetentionExecutionError, "journal failure"
+            ) as raised:
+                RetentionService(object(), repository).execute(
+                    preview, "retention policy cleanup", "manager"
+                )
+        result = raised.exception.result
+        self.assertEqual((result.deleted, result.missing, result.failed), (0, 0, 1))
+        self.assertEqual(len(repository.events()), 1)
+        self.assertEqual(repository.journal(), [])
+        self.assertEqual(repository.get_preview(preview.operation_id), preview)
+
+    def test_retention_failure_before_journal_write_rolls_back(self):
+        self._retention_failure(
+            "_store_governance_in_session", RuntimeError("journal failure before write")
+        )
+
+    def test_retention_failure_during_journal_write_rolls_back(self):
+        repository = SQLRepository(Context("atomic-during"), engine=self.engine)
+        preview_now = datetime.now(UTC)
+        repository.append(
+            LogEvent(comment="expired", created_at=preview_now - timedelta(days=400))
+        )
+        preview = repository.preview_delete(
+            RetentionPolicy(enabled=True, older_than_days=30), preview_now
+        )
+        original = repository._store_governance_in_session
+
+        def write_then_fail(session, entry):
+            original(session, entry)
+            raise RuntimeError("journal failure during write")
+
+        with patch.object(
+            repository,
+            "_store_governance_in_session",
+            side_effect=write_then_fail,
+        ):
+            with self.assertRaisesRegex(
+                RetentionExecutionError, "journal failure"
+            ) as raised:
+                RetentionService(object(), repository).execute(
+                    preview, "retention policy cleanup", "manager"
+                )
+        self.assertEqual(raised.exception.result.failed, 1)
+        self.assertEqual(len(repository.events()), 1)
+        self.assertEqual(repository.journal(), [])
+        self.assertEqual(repository.get_preview(preview.operation_id), preview)
+
+    def test_retention_failure_after_journal_write_rolls_back(self):
+        self._retention_failure(
+            "_store_governance_head_in_session",
+            RuntimeError("journal failure after write"),
+        )
 
     def test_uuid_can_be_reused_by_another_object_without_merging_rows(self):
         event_id = uuid4()

@@ -10,13 +10,7 @@ from .storage import LogRepository, get_repository
 
 
 class RetentionExecutionError(RuntimeError):
-    """Report a deletion completed without a governance journal entry.
-
-    The current storage contract exposes deletion and journaling as separate
-    operations. Callers must treat this as an indeterminate governance state,
-    not as a successful retention operation; ``result`` records what deletion
-    returned before the journal failure.
-    """
+    """Report a rolled-back retention operation without governance evidence."""
 
     def __init__(self, result: DeletionResult, cause: Exception):
         self.result = result
@@ -39,22 +33,25 @@ class RetentionService:
     def execute(
         self, preview: DeletionPreview, reason: str, actor: str
     ) -> DeletionResult:
-        result = self.repository.delete_preview(preview, reason)
         try:
-            self.repository.record_governance(
-                "retention_delete",
-                actor,
-                reason,
-                operation_id=str(result.operation_id),
-                requested=result.requested,
-                eligible=result.eligible,
-                deleted=result.deleted,
-                missing=result.missing,
-                failed=result.failed,
-            )
+            return self.repository.delete_and_journal(preview, reason, actor)
+        except ValueError:
+            raise
         except Exception as exc:
+            # An atomic repository operation rolls back every selected event
+            # when evidence cannot be committed.  Report those events as
+            # failed, not deleted, so callers do not mistake an error for a
+            # partially successful retention run.
+            result = DeletionResult(
+                preview.operation_id,
+                len(preview.event_ids),
+                len(preview.event_ids),
+                0,
+                0,
+                len(preview.event_ids),
+                reason,
+            )
             raise RetentionExecutionError(result, exc) from exc
-        return result
 
     def set_policy(self, policy: RetentionPolicy, actor: str, reason: str) -> None:
         self.repository.set_policy(policy)

@@ -43,6 +43,20 @@ CHAIN_HEAD_KEY = "zopyx.plone.persistentlogger.connector.chain-head"
 class AnnotationRepository(BaseLogStorage):
     """Repository preserving legacy annotation records while adding typed APIs."""
 
+    def delete_and_journal(
+        self, preview: DeletionPreview, reason: str, actor: str
+    ) -> DeletionResult:
+        """Keep deletion and evidence in the surrounding ZODB transaction."""
+        savepoint = transaction.savepoint()
+        try:
+            return super().delete_and_journal(preview, reason, actor)
+        except Exception:
+            # The caller owns the outer transaction.  Rolling back this
+            # savepoint removes both annotation mutations without aborting
+            # unrelated changes in that transaction.
+            savepoint.rollback()
+            raise
+
     @property
     def annotations(self) -> Any:
         """Return the annotation store without changing it on read."""
