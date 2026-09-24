@@ -1,0 +1,4 @@
+<?xml version="1.0"?>
+<registry>
+  <!-- Record migration is performed by the registered upgrade handler. -->
+</registry>

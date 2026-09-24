@@ -30,6 +30,12 @@
     />
 
     <subscriber
+        for="Products.CMFCore.interfaces.IContentish
+             zope.lifecycleevent.interfaces.IObjectRemovedEvent"
+        handler="zopyx.plone.persistentlogger.audit.audit_object_removed"
+    />
+
+    <subscriber
         for="plone.registry.interfaces.IRecordModifiedEvent"
         handler="zopyx.plone.persistentlogger.audit.audit_settings_changed"
     />
@@ -45,6 +51,15 @@
         directory="profiles/default"
         description="zopyx.plone.persistentlogger"
         provides="Products.GenericSetup.interfaces.EXTENSION"
+    />
+
+    <genericsetup:upgradeStep
+        title="Migrate persistent logger records to canonical digests"
+        description="Normalize legacy annotation records and rebuild their integrity chain."
+        profile="zopyx.plone.persistentlogger:default"
+        source="2"
+        destination="3"
+        handler="zopyx.plone.persistentlogger.migrations.v1.upgrade_to_3"
     />
 
     <genericsetup:registerProfile

@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import math
 from collections.abc import Mapping
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from enum import Enum
 from typing import Any
 from uuid import UUID
@@ -119,7 +119,7 @@ def canonical_json(value: Any) -> str:
 
 def event_row(event: Any) -> dict[str, Any]:
     if isinstance(event, dict):
-        return {
+        row = {
             "event_id": str(event.get("uuid", event.get("event_id", ""))),
             "created_at": event.get("date", event.get("created_at")),
             "actor": event.get("username", event.get("actor", "")),
@@ -134,6 +134,9 @@ def event_row(event: Any) -> dict[str, Any]:
             "schema_version": event.get("schema_version", 0),
             "integrity_digest": event.get("integrity_digest"),
         }
+        if event.get("sequence") is not None:
+            row["sequence"] = int(event["sequence"])
+        return row
     return {
         "event_id": str(event.event_id),
         "created_at": event.created_at,
@@ -149,10 +152,111 @@ def event_row(event: Any) -> dict[str, Any]:
     }
 
 
-def event_digest(event: Any, previous_digest: str = "") -> str:
+def _canonical_datetime(value: Any) -> datetime:
+    """Normalize an event timestamp for hashing and migration ordering."""
+    if isinstance(value, datetime):
+        if value.tzinfo is None or value.utcoffset() is None:
+            return value.replace(tzinfo=UTC)
+        return value.astimezone(UTC)
+    if isinstance(value, date):
+        return datetime(value.year, value.month, value.day, tzinfo=UTC)
+    if isinstance(value, str):
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return datetime.min.replace(tzinfo=UTC)
+        return _canonical_datetime(parsed)
+    return datetime.min.replace(tzinfo=UTC)
+
+
+def canonical_event_date(event: Any) -> datetime:
+    """Return a legacy-compatible event date normalized to UTC."""
+    if isinstance(event, dict):
+        values = (event.get("created_at"), event.get("date"))
+    else:
+        values = (getattr(event, "created_at", None),)
+    for value in values:
+        if isinstance(value, (datetime, date)):
+            return _canonical_datetime(value)
+        if isinstance(value, str):
+            try:
+                return _canonical_datetime(
+                    datetime.fromisoformat(value.replace("Z", "+00:00"))
+                )
+            except ValueError:
+                continue
+    return datetime.min.replace(tzinfo=UTC)
+
+
+def canonical_event_payload(
+    event: Any, previous_digest: str | None = None
+) -> dict[str, Any]:
+    """Return the one event payload used by storage and migrations.
+
+    Legacy aliases are accepted on input, but never participate in the hash.
+    The stored digest is deliberately excluded, making the result suitable for
+    both creating and verifying records.
+    """
+    if isinstance(event, dict):
+        value = event
+        event_id = value.get("event_id", value.get("uuid", ""))
+        created_at = value.get("created_at", value.get("date"))
+        actor = value.get("actor", value.get("username", ""))
+        event_type = value.get("event_type", "application")
+        severity = value.get("severity", value.get("level", "info"))
+        target = value.get("target", "")
+        comment = value.get("comment", "")
+        info_url = value.get("info_url")
+        details = value.get("details", value.get("details_raw"))
+        schema_version = value.get("schema_version", 1)
+        previous = (
+            previous_digest
+            if previous_digest is not None
+            else value.get("previous_digest", "")
+        )
+    else:
+        value = None
+        event_id = event.event_id
+        created_at = event.created_at
+        actor = event.actor
+        event_type = event.event_type
+        severity = event.severity
+        target = event.target
+        comment = event.comment
+        info_url = event.info_url
+        details = event.details
+        schema_version = event.schema_version
+        previous = previous_digest if previous_digest is not None else ""
+
+    try:
+        normalized_schema_version = int(schema_version or 1)
+    except (TypeError, ValueError):
+        normalized_schema_version = 1
+    return {
+        "event_id": str(event_id),
+        "created_at": _canonical_datetime(created_at),
+        "actor": str(actor or ""),
+        "event_type": str(event_type or ""),
+        "severity": str(getattr(severity, "value", severity) or ""),
+        "target": str(target or ""),
+        "comment": str(comment or ""),
+        "info_url": None if info_url is None else str(info_url),
+        "details": sanitized_details(details),
+        "schema_version": normalized_schema_version,
+        "previous_digest": str(previous or ""),
+        **(
+            {"sequence": int(value["sequence"])}
+            if value is not None and value.get("sequence") is not None
+            else {}
+        ),
+    }
+
+
+def event_digest(event: Any, previous_digest: str | None = None) -> str:
+    """Return the canonical, non-self-referential event digest."""
     import hashlib
 
-    payload = {"previous_digest": previous_digest, "event": event_row(event)}
+    payload = canonical_event_payload(event, previous_digest)
     return hashlib.sha256(canonical_json(payload).encode("utf-8")).hexdigest()
 
 

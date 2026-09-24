@@ -108,11 +108,11 @@ class StaticHardeningTests(unittest.TestCase):
         zcml = (ROOT / "browser" / "configure.zcml").read_text()
         rolemap = (ROOT / "profiles" / "default" / "rolemap.xml").read_text()
         metadata = (ROOT / "profiles" / "default" / "metadata.xml").read_text()
-        upgrade = ROOT / "profiles" / "default" / "upgrades" / "to_2" / "registry.xml"
+        upgrade = ROOT / "profiles" / "default" / "upgrades" / "to_3" / "registry.xml"
         self.assertIn('id="zopyx.plone.persistentlogger.ViewAuditLog"', zcml)
         self.assertIn('permission="zopyx.plone.persistentlogger.ViewAuditLog"', zcml)
         self.assertIn('name="View audit log"', rolemap)
-        self.assertIn("<version>2</version>", metadata)
+        self.assertIn("<version>3</version>", metadata)
         self.assertTrue(upgrade.is_file())
 
     def test_packaging_uses_odfpy_only_as_the_ods_extra(self):

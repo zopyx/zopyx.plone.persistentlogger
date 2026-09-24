@@ -8,8 +8,10 @@ importing each other.
 
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime
 from typing import Any
+
+from ..serialization import canonical_event_date
 
 __all__ = ["event_date", "event_id_of", "severity_value"]
 
@@ -21,12 +23,7 @@ def event_id_of(entry: dict[str, Any]) -> str:
 
 def event_date(entry: dict[str, Any]) -> datetime:
     """Return the (UTC) timestamp of an event entry."""
-    value = entry.get("date", entry.get("created_at"))
-    if not isinstance(value, datetime):
-        return datetime.min.replace(tzinfo=UTC)
-    if value.tzinfo is None:
-        return value.replace(tzinfo=UTC)
-    return value.astimezone(UTC)
+    return canonical_event_date(entry)
 
 
 def severity_value(entry: dict[str, Any]) -> str:

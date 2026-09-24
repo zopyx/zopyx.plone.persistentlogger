@@ -8,9 +8,11 @@ ZODB and participate in the surrounding transaction.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
+import transaction
 from BTrees.OOBTree import OOBTree
 from persistent.mapping import PersistentMapping
 from zope.annotation.interfaces import IAnnotations
@@ -23,12 +25,15 @@ __all__ = [
     "JOURNAL_KEY",
     "CHAIN_HEAD_KEY",
     "LOG_KEY",
+    "QUARANTINE_KEY",
+    "migrate_store",
     "POLICY_KEY",
     "PREVIEW_KEY",
     "AnnotationRepository",
 ]
 
 LOG_KEY = "zopyx.plone.persistentlogger.connector.log"
+QUARANTINE_KEY = "zopyx.plone.persistentlogger.connector.log-quarantine"
 JOURNAL_KEY = "zopyx.plone.persistentlogger.connector.governance"
 POLICY_KEY = "zopyx.plone.persistentlogger.connector.retention"
 PREVIEW_KEY = "zopyx.plone.persistentlogger.connector.previews"
@@ -40,16 +45,26 @@ class AnnotationRepository(BaseLogStorage):
 
     @property
     def annotations(self) -> Any:
-        """Return the (migrated) annotation store of the context."""
+        """Return the annotation store without changing it on read."""
         annotations = IAnnotations(self.context)
         if LOG_KEY not in annotations:
             annotations[LOG_KEY] = OOBTree()
-        store = annotations[LOG_KEY]
-        migrate_store(store)
-        return store
+        return annotations[LOG_KEY]
 
-    # ------------------------------------------------------------------
-    # event primitives
+    def delete_and_journal(
+        self, preview: DeletionPreview, reason: str, actor: str
+    ):
+        """Keep deletion and its evidence in one surrounding ZODB transaction."""
+        savepoint = transaction.savepoint()
+        try:
+            return super().delete_and_journal(preview, reason, actor)
+        except Exception:
+            # Do not leave annotation mutations live when journaling fails.
+            # The caller still owns the surrounding transaction; rolling back
+            # only this savepoint preserves the historical ZODB semantics.
+            savepoint.rollback()
+            raise
+
     # ------------------------------------------------------------------
     def _load_events(self) -> list[dict[str, Any]]:
         return [value for value in self.annotations.values() if isinstance(value, dict)]
@@ -71,6 +86,12 @@ class AnnotationRepository(BaseLogStorage):
         if store.get(entry["uuid"]) is not None:
             raise ValueError(f"event id {entry['uuid']} already exists")
         store[entry["uuid"]] = entry
+        store._p_changed = True
+
+    def _rewrite_event(self, entry: dict[str, Any]) -> None:
+        """Persist a changed digest during retention relinking or repair."""
+        store = self.annotations
+        store[str(entry["uuid"])] = entry
         store._p_changed = True
 
     def _load_event_head(self) -> str:
@@ -183,7 +204,28 @@ class AnnotationRepository(BaseLogStorage):
         return previews
 
     def _store_preview(self, preview: DeletionPreview) -> None:
-        self._previews(create=True)[str(preview.operation_id)] = preview
+        previews = self._previews(create=True)
+        if previews is None:  # pragma: no cover - defensive annotation guard
+            raise RuntimeError("preview annotation store could not be created")
+        previews[str(preview.operation_id)] = preview
+        previews._p_changed = True
+
+    def cleanup_expired_previews(self, now: datetime | None = None) -> int:
+        """Delete expired previews belonging to this object's annotations."""
+        previews = self._previews()
+        if previews is None:
+            return 0
+        current = now or datetime.now(UTC)
+        expired = [
+            operation_id
+            for operation_id, preview in list(previews.items())
+            if isinstance(preview, DeletionPreview) and preview.is_expired(current)
+        ]
+        for operation_id in expired:
+            del previews[operation_id]
+        if expired:
+            previews._p_changed = True
+        return len(expired)
 
     def _consume_preview(self, preview: DeletionPreview) -> DeletionPreview | None:
         previews = self._previews()

@@ -28,19 +28,20 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from datetime import datetime, timedelta
-from hashlib import sha256
 from threading import Lock, RLock
 from typing import Any
 from uuid import UUID, uuid4
 
 from ..models import (
+    PREVIEW_TTL,
     DeletionPreview,
     DeletionResult,
     LogEvent,
     RetentionPolicy,
+    require_utc,
     utc_now,
 )
-from ..serialization import canonical_json, event_row
+from ..serialization import canonical_json, event_digest, event_row
 from .query import (
     Condition,
     ConditionGroup,
@@ -61,6 +62,7 @@ __all__ = [
     "governance_digest",
     "new_event_entry",
     "new_governance_entry",
+    "next_sequence",
     "object_uid",
     "SearchResult",
     "selection_digest",
@@ -100,51 +102,6 @@ def object_uid(context: Any) -> str:
     return str(getattr(context, "__name__", "unknown"))
 
 
-def _event_payload(entry: Any, previous_digest: str | None = None) -> dict[str, Any]:
-    """Return the digest payload without legacy aliases or the digest itself."""
-    if isinstance(entry, dict):
-        row = {
-            "event_id": entry.get("event_id", entry.get("uuid", "")),
-            "created_at": entry.get("created_at", entry.get("date")),
-            "actor": entry.get("actor", entry.get("username", "")),
-            "event_type": entry.get("event_type", "application"),
-            "severity": entry.get("severity", entry.get("level", "info")),
-            "target": entry.get("target", ""),
-            "comment": entry.get("comment", ""),
-            "info_url": entry.get("info_url"),
-            "details": entry.get("details", entry.get("details_raw")),
-            "schema_version": entry.get("schema_version", 1),
-        }
-    else:
-        row = event_row(entry)
-    previous = (
-        previous_digest
-        if previous_digest is not None
-        else str(entry.get("previous_digest", ""))
-        if isinstance(entry, dict)
-        else ""
-    )
-    return {
-        "event_id": str(row["event_id"]),
-        "created_at": row["created_at"],
-        "actor": str(row["actor"] or ""),
-        "event_type": str(row["event_type"] or ""),
-        "severity": getattr(row["severity"], "value", row["severity"]),
-        "target": str(row["target"] or ""),
-        "comment": str(row["comment"] or ""),
-        "info_url": row["info_url"],
-        "details": row["details"],
-        "schema_version": int(row["schema_version"] or 1),
-        "previous_digest": previous,
-    }
-
-
-def event_digest(event: Any, previous_digest: str | None = None) -> str:
-    """Return the canonical, non-self-referential event digest."""
-    payload = _event_payload(event, previous_digest)
-    return sha256(canonical_json(payload).encode("utf-8")).hexdigest()
-
-
 _GOVERNANCE_FIELDS = frozenset(
     {"event_id", "created_at", "actor", "action", "reason", "previous_digest"}
 )
@@ -169,16 +126,20 @@ def _governance_payload(entry: dict[str, Any]) -> dict[str, Any]:
 
 def governance_digest(entry: dict[str, Any]) -> str:
     """Return the canonical governance digest over metadata and payload."""
+    from hashlib import sha256
+
     return sha256(
         canonical_json(_governance_payload(entry)).encode("utf-8")
     ).hexdigest()
 
 
 def _verify_chain(
-    records: list[dict[str, Any]], digest: Callable[[dict[str, Any]], str]
+    records: list[dict[str, Any]],
+    digest: Callable[[dict[str, Any]], str],
+    anchor_digest: str | None = None,
 ) -> bool:
     if not records:
-        return True
+        return anchor_digest in (None, "")
     if any(not isinstance(record, dict) for record in records):
         return False
     if len({event_id_of(record) for record in records}) != len(records):
@@ -191,6 +152,8 @@ def _verify_chain(
         return False
     first = [record for record in records if not record.get("previous_digest")]
     if len(first) != 1:
+        return False
+    if anchor_digest is not None and first[0].get("integrity_digest") != anchor_digest:
         return False
     by_previous = {str(record.get("previous_digest", "")): record for record in records}
     current = first[0]
@@ -207,9 +170,11 @@ def _verify_chain(
     return len(visited) == len(records)
 
 
-def verify_event_chain(records: list[dict[str, Any]]) -> bool:
-    """Verify event contents, links, and that no chain element is missing."""
-    return _verify_chain(records, event_digest)
+def verify_event_chain(
+    records: list[dict[str, Any]], anchor_digest: str | None = None
+) -> bool:
+    """Verify events, optionally against one retention-chain anchor."""
+    return _verify_chain(records, event_digest, anchor_digest)
 
 
 def verify_governance_chain(records: list[dict[str, Any]]) -> bool:
@@ -217,7 +182,9 @@ def verify_governance_chain(records: list[dict[str, Any]]) -> bool:
     return _verify_chain(records, governance_digest)
 
 
-def new_event_entry(event: Any, previous_digest: str = "") -> dict[str, Any]:
+def new_event_entry(
+    event: Any, previous_digest: str = "", sequence: int | None = None
+) -> dict[str, Any]:
     """Build a canonical event record including its chain digest."""
     entry: dict[str, Any] = event_row(event)
     entry.update(
@@ -229,8 +196,24 @@ def new_event_entry(event: Any, previous_digest: str = "") -> dict[str, Any]:
         previous_digest=previous_digest,
         integrity_digest="",
     )
+    if sequence is not None:
+        if sequence <= 0:
+            raise ValueError("event sequence must be positive")
+        entry["sequence"] = sequence
     entry["integrity_digest"] = event_digest(entry, previous_digest)
     return entry
+
+
+def next_sequence(records: list[dict[str, Any]]) -> int:
+    """Return the next strictly increasing sequence for a record collection."""
+    values = [
+        int(record["sequence"])
+        for record in records
+        if isinstance(record.get("sequence"), int)
+        and not isinstance(record.get("sequence"), bool)
+        and int(record["sequence"]) > 0
+    ]
+    return max(values, default=0) + 1
 
 
 def new_governance_entry(
@@ -257,6 +240,8 @@ def selection_digest(
     selection = canonical_json(
         {"object": object_uid_value, "ids": ids, "cutoff": cutoff}
     )
+    from hashlib import sha256
+
     return sha256(selection.encode("utf-8")).hexdigest()
 
 
@@ -282,7 +267,7 @@ class BaseLogStorage(ABC):
         """Persist one event record, replacing a record with the same id."""
 
     def _rewrite_event(self, entry: dict[str, Any]) -> None:
-        """Persist a changed digest while rebuilding a canonical chain."""
+        """Persist a changed digest during explicit chain repair."""
 
     @abstractmethod
     def _delete_events(self, event_ids: tuple[UUID, ...]) -> tuple[int, int]:
@@ -385,6 +370,59 @@ class BaseLogStorage(ABC):
             current = successor
         return ""
 
+    @staticmethod
+    def _chain_order(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Return records in link order, falling back for malformed data."""
+        if not records:
+            return []
+        by_previous: dict[str, dict[str, Any]] = {}
+        for entry in records:
+            previous = str(entry.get("previous_digest", ""))
+            if previous in by_previous:
+                return sorted(
+                    records, key=lambda value: (event_date(value), event_id_of(value))
+                )
+            by_previous[previous] = entry
+        current = by_previous.get("")
+        if current is None:
+            return sorted(
+                records, key=lambda value: (event_date(value), event_id_of(value))
+            )
+        ordered: list[dict[str, Any]] = []
+        visited: set[str] = set()
+        while current is not None and event_id_of(current) not in visited:
+            visited.add(event_id_of(current))
+            ordered.append(current)
+            current = by_previous.get(str(current.get("integrity_digest", "")))
+        if len(ordered) != len(records):
+            return sorted(
+                records, key=lambda value: (event_date(value), event_id_of(value))
+            )
+        return ordered
+
+    def event_chain_anchor(self) -> str:
+        """Return the digest of the first event in the current chain."""
+        records = [entry for entry in self._load_events() if isinstance(entry, dict)]
+        ordered = self._chain_order(records)
+        return str(ordered[0].get("integrity_digest", "")) if ordered else ""
+
+    def _relink_event_chain(self, records: list[dict[str, Any]]) -> tuple[str, str]:
+        """Relink survivors after explicit retention deletion or repair."""
+        ordered = records
+        previous = ""
+        anchor = ""
+        for entry in ordered:
+            entry["previous_digest"] = previous
+            entry["integrity_digest"] = event_digest(entry)
+            self._rewrite_event(entry)
+            anchor = anchor or str(entry["integrity_digest"])
+            previous = str(entry["integrity_digest"])
+        if ordered:
+            self._store_event_head(ordered[-1])
+        else:
+            self._reset_event_head()
+        return anchor, previous
+
     def _rebuild_event_chain(self) -> str:
         """Re-link events in deterministic timestamp/id order."""
         records = [entry for entry in self._load_events() if isinstance(entry, dict)]
@@ -432,13 +470,13 @@ class BaseLogStorage(ABC):
 
     def append(self, event: LogEvent) -> dict[str, Any]:
         """Append one event and return the stored record."""
-        previous = self.last_digest()
         with self._lock("events"):
             if self.get(event.event_id) is not None:
                 raise ValueError(f"event id {event.event_id} already exists")
-            entry = new_event_entry(event, previous)
+            previous = self.last_digest()
+            entry = new_event_entry(event, previous, next_sequence(self._load_events()))
             self._store_event(entry)
-            self._rebuild_event_chain()
+            self._store_event_head(entry)
             return entry
 
     def get(self, event_id: Any) -> dict[str, Any] | None:
@@ -470,7 +508,7 @@ class BaseLogStorage(ABC):
         self, policy: RetentionPolicy, now: datetime | None = None
     ) -> DeletionPreview:
         """Build and store a deletion preview for the current log."""
-        now = now or utc_now()
+        now = require_utc(now or utc_now())
         cutoff = now - timedelta(days=policy.older_than_days)
         eligible = [entry for entry in self.events() if event_date(entry) < cutoff][
             : policy.max_entries
@@ -480,42 +518,152 @@ class BaseLogStorage(ABC):
         )
         uid = object_uid(self.context)
         preview = DeletionPreview(
-            uuid4(), uid, cutoff, ids, selection_digest(uid, ids, cutoff)
+            uuid4(),
+            uid,
+            cutoff,
+            ids,
+            selection_digest(uid, ids, cutoff),
+            now + PREVIEW_TTL,
         )
         self._store_preview(preview)
         return preview
 
-    def delete_preview(self, preview: DeletionPreview, reason: str) -> DeletionResult:
+    def cleanup_expired_previews(self, now: datetime | None = None) -> int:
+        """Remove expired unconsumed previews for this object."""
+        return 0
+
+    def remove_object(self) -> int:
+        """Remove external lifecycle data for this object, if any."""
+        return 0
+
+    def _validated_preview(
+        self, preview: DeletionPreview, now: datetime | None = None
+    ) -> DeletionPreview:
+        """Return a stored, unexpired preview after validating its selection."""
+        current = require_utc(now or utc_now())
+        stored = self._load_preview(str(preview.operation_id))
+        if stored is not None and stored.is_expired(current):
+            self.cleanup_expired_previews(current)
+            stored = None
+        if (
+            stored is None
+            or stored != preview
+            or stored.object_uid != self.object_uid()
+            or stored.selection_digest
+            != selection_digest(stored.object_uid, stored.event_ids, stored.cutoff)
+        ):
+            raise ValueError("deletion preview is missing or stale")
+        return stored
+
+    def _deletion_result(
+        self,
+        preview: DeletionPreview,
+        reason: str,
+        deleted: int,
+        missing: int,
+        failed: int = 0,
+    ) -> DeletionResult:
+        """Build a result whose counters describe the attempted operation."""
+        return DeletionResult(
+            preview.operation_id,
+            len(preview.event_ids),
+            len(preview.event_ids),
+            deleted,
+            missing,
+            failed,
+            reason,
+        )
+
+    def delete_preview(
+        self,
+        preview: DeletionPreview,
+        reason: str,
+        now: datetime | None = None,
+    ) -> DeletionResult:
         """Execute and consume a stored deletion preview exactly once."""
         if len(reason.strip()) < 10:
             raise ValueError("deletion reason must contain at least 10 characters")
         with self._lock("events"):
-            stored = self._load_preview(str(preview.operation_id))
-            if (
-                stored is None
-                or stored != preview
-                or stored.object_uid != self.object_uid()
-                or stored.selection_digest
-                != selection_digest(stored.object_uid, stored.event_ids, stored.cutoff)
-            ):
-                raise ValueError("deletion preview is missing or stale")
+            stored = self._validated_preview(preview, now)
             consumed = self._consume_preview(stored)
             if consumed is None:
                 raise ValueError("deletion preview is missing or stale")
+            records = [
+                entry for entry in self._load_events() if isinstance(entry, dict)
+            ]
+            selected = {str(event_id) for event_id in stored.event_ids}
             deleted, missing = self._delete_events(stored.event_ids)
-            self._reset_event_head()
-            return DeletionResult(
-                stored.operation_id,
-                len(stored.event_ids),
-                len(stored.event_ids),
-                deleted,
-                missing,
-                0,
-                reason,
-            )
+            if deleted:
+                survivors = [
+                    entry
+                    for entry in self._chain_order(records)
+                    if event_id_of(entry) not in selected
+                ]
+                self._relink_event_chain(survivors)
+            else:
+                self._reset_event_head()
+            return self._deletion_result(stored, reason, deleted, missing)
 
-    def get_preview(self, operation_id: Any) -> DeletionPreview | None:
-        """Return a stored deletion preview or ``None``."""
+    def delete_and_journal(
+        self,
+        preview: DeletionPreview,
+        reason: str,
+        actor: str,
+        now: datetime | None = None,
+    ) -> DeletionResult:
+        """Delete a preview and write its evidence as one repository operation.
+
+        Backends with transactional storage override this method when they need
+        to place all primitive writes in one database transaction.  The base
+        implementation deliberately performs both changes while holding the
+        repository locks; the ZODB backend therefore keeps its historical
+        surrounding-transaction semantics.
+        """
+        if len(reason.strip()) < 10:
+            raise ValueError("deletion reason must contain at least 10 characters")
+        with self._lock("events"), self._lock("governance"):
+            stored = self._validated_preview(preview, now)
+            consumed = self._consume_preview(stored)
+            if consumed is None:
+                raise ValueError("deletion preview is missing or stale")
+            records = [
+                entry for entry in self._load_events() if isinstance(entry, dict)
+            ]
+            selected = {str(event_id) for event_id in stored.event_ids}
+            deleted, missing = self._delete_events(stored.event_ids)
+            survivor_digest = ""
+            if deleted:
+                survivors = [
+                    entry
+                    for entry in self._chain_order(records)
+                    if event_id_of(entry) not in selected
+                ]
+                survivor_digest, _ = self._relink_event_chain(survivors)
+            else:
+                self._reset_event_head()
+            result = self._deletion_result(stored, reason, deleted, missing)
+            entry = new_governance_entry(
+                "retention_delete",
+                actor,
+                reason,
+                self._governance_tail(),
+                operation_id=str(result.operation_id),
+                requested=result.requested,
+                eligible=result.eligible,
+                deleted=result.deleted,
+                missing=result.missing,
+                failed=result.failed,
+                survivor_digest=survivor_digest,
+            )
+            self._store_governance(entry)
+            self._store_governance_head(entry)
+            return result
+
+    def get_preview(
+        self, operation_id: Any, now: datetime | None = None
+    ) -> DeletionPreview | None:
+        """Return an unexpired stored deletion preview or ``None``."""
+        self.cleanup_expired_previews(now)
         return self._load_preview(str(operation_id))
 
     # ------------------------------------------------------------------

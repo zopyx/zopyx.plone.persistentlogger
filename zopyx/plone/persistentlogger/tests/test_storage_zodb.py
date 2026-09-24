@@ -11,6 +11,7 @@ from BTrees.OOBTree import OOBTree
 from persistent import Persistent
 from persistent.mapping import PersistentMapping
 
+from ..migrations.v1 import migrate_annotations
 from ..models import LogEvent, RetentionPolicy, Severity
 from ..storage.zodb import (
     JOURNAL_KEY,
@@ -76,7 +77,7 @@ class ZodbStorageContractTests(StorageContractMixin, unittest.TestCase):
         self.assertIn(str(entry["uuid"]), store)
         self.assertIs(store[str(entry["uuid"])], entry)
 
-    def test_legacy_records_are_migrated_on_access(self):
+    def test_legacy_records_are_migrated_by_explicit_upgrade(self):
         annotations = self.annotations()
         legacy_id = uuid4()
         annotations[LOG_KEY] = AnnotationStore(
@@ -94,6 +95,9 @@ class ZodbStorageContractTests(StorageContractMixin, unittest.TestCase):
 
         events = self.repository.events()
         self.assertEqual(len(events), 1)
+        self.assertEqual(events[0], annotations[LOG_KEY][datetime(2020, 1, 1)])
+        self.assertEqual(migrate_annotations(annotations), 1)
+        events = self.repository.events()
         # Migrated to the current schema and re-keyed by the event id.
         self.assertEqual(events[0]["event_id"], str(legacy_id))
         self.assertEqual(events[0]["actor"], "old-user")
@@ -200,6 +204,7 @@ class ZodbSpecificTests(unittest.TestCase):
     def test_legacy_entry_without_uuid_is_reachable(self):
         legacy = {"comment": "no uuid", "date": datetime(2021, 1, 1, tzinfo=UTC)}
         self.store[LOG_KEY] = AnnotationStore({datetime(2021, 1, 1): legacy})
+        migrate_annotations(self.store)
         entry = self.repository.events()[0]
         self.assertIsNotNone(self.repository.get(entry["event_id"]))
 
