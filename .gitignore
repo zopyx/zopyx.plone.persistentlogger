@@ -19,6 +19,9 @@ instance.yaml
 .coverage
 docs/build/
 instance/
+build/
+dist/
+node_modules/
 .venv/
 docs/build/
 

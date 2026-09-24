@@ -24,7 +24,7 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v7
         with:
-          version: latest
+          version: "0.12.18"
           enable-cache: true
 
       - name: Set up Python
@@ -35,40 +35,39 @@ jobs:
       - name: Sync locked environment
         run: uv sync --locked --all-groups
 
+      - name: Check Python metadata and lockfile
+        run: make PYTHON=${{ matrix.python-version }} metadata-check
+
       - name: Run the full suite (ZODB and PostgreSQL) with coverage
         # `make test` requires the PostgreSQL test container and enforces the
         # coverage threshold from pyproject.toml, so CI cannot silently drop
         # the RDBMS half of the suite.
-        run: make test
+        run: make PYTHON=${{ matrix.python-version }} test
 
       - name: Check Ruff lint
-        run: uv run ruff check .
+        run: make PYTHON=${{ matrix.python-version }} lint
 
       - name: Check Ruff formatting
-        run: uv run ruff format --check .
+        run: make PYTHON=${{ matrix.python-version }} format-check
 
       - name: Run type checker
-        run: uv run ty check zopyx
+        run: make PYTHON=${{ matrix.python-version }} typecheck
 
   frontend-lint:
-    name: JavaScript lint
+    name: JavaScript checks
     runs-on: ubuntu-latest
     steps:
       - name: Check out source
         uses: actions/checkout@v4
 
-      - name: Set up Biome
-        uses: biomejs/setup-biome@v2
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
         with:
-          version: 2.5.14
+          node-version: "22"
+          cache: npm
 
-      - name: Check JavaScript with Biome
-        run: >-
-          biome lint --error-on-warnings
-          zopyx/plone/persistentlogger/browser/resources/persistent-log.js
-
-      - name: Check JavaScript syntax
-        run: node --check zopyx/plone/persistentlogger/browser/resources/persistent-log.js
+      - name: Install frontend tools and run checks
+        run: make frontend-check
 
   dependency-audit:
     name: Dependency audit
@@ -80,7 +79,7 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v7
         with:
-          version: latest
+          version: "0.12.18"
           enable-cache: true
 
       - name: Set up Python
@@ -106,7 +105,7 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v7
         with:
-          version: latest
+          version: "0.12.18"
           enable-cache: true
 
       - name: Set up Python
@@ -116,10 +115,9 @@ jobs:
 
       - name: Build and validate distributions
         run: |
-          uv sync --locked --only-group release
-          rm -rf dist build *.egg-info
-          uv run --group release python -m build
-          uv run --group release python -m twine check dist/*
+          uv sync --locked --all-groups
+          make PYTHON=3.14 package-check
+          make PYTHON=3.14 docs-reproducible-check
 
       - name: Upload distributions
         uses: actions/upload-artifact@v4

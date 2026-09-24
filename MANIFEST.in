@@ -1,2 +1,7 @@
+include MANIFEST.in README.rst pyproject.toml setup.cfg setup.py
 recursive-include zopyx *.zcml *.pt *.xml *.txt *.css *.js
-include setup.py *cfg
+recursive-include zopyx/plone/persistentlogger/migrations *.py
+recursive-include zopyx/plone/persistentlogger/profiles *
+recursive-include zopyx/plone/persistentlogger/browser/resources *
+recursive-include docs/source *.rst *.py
+include *.cfg

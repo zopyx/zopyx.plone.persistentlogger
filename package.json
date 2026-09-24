@@ -1,0 +1,16 @@
+{
+  "name": "zopyx-plone-persistentlogger-frontend",
+  "private": true,
+  "version": "0.0.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "lint": "biome lint --error-on-warnings zopyx/plone/persistentlogger/browser/resources/persistent-log.js",
+    "syntax": "node --check zopyx/plone/persistentlogger/browser/resources/persistent-log.js",
+    "check": "npm run lint && npm run syntax"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.14"
+  }
+}

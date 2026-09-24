@@ -5121,12 +5121,38 @@ wheels = [
 ]
 
 [[package]]
+name = "zope2"
+version = "4.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "zope" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/0c/b6/b05c357f7855b80847a2ac0de47352823ef6534e71d2c532686a973531bd/Zope2-4.0.tar.gz", hash = "sha256:7d5f4312d891cbf6e5dfb27445e23d523cd9f71f79b6deff505d0cced9afb14e", size = 1642, upload-time = "2019-05-10T13:33:13.765Z" }
+
+[[package]]
 name = "zopyx-plone-persistentlogger"
 version = "0.5.2"
 source = { editable = "." }
 dependencies = [
+    { name = "btrees" },
+    { name = "datetime" },
     { name = "loguru" },
+    { name = "persistent" },
     { name = "plone-api" },
+    { name = "plone-app-registry" },
+    { name = "plone-protect" },
+    { name = "plone-registry" },
+    { name = "plone-z3cform" },
+    { name = "products-cmfcore" },
+    { name = "transaction" },
+    { name = "z3c-form" },
+    { name = "zope-annotation" },
+    { name = "zope-component" },
+    { name = "zope-i18nmessageid" },
+    { name = "zope-interface" },
+    { name = "zope-lifecycleevent" },
+    { name = "zope-schema" },
+    { name = "zope2" },
 ]
 
 [package.optional-dependencies]
@@ -5135,6 +5161,7 @@ ods = [
 ]
 rdbms = [
     { name = "psycopg", extra = ["binary"] },
+    { name = "sqlalchemy" },
     { name = "sqlmodel" },
 ]
 xlsx = [
@@ -5167,12 +5194,30 @@ test = [
 
 [package.metadata]
 requires-dist = [
+    { name = "btrees" },
+    { name = "datetime" },
     { name = "loguru" },
     { name = "odfpy", marker = "extra == 'ods'", specifier = ">=1.4" },
     { name = "openpyxl", marker = "extra == 'xlsx'", specifier = ">=3.1" },
+    { name = "persistent" },
     { name = "plone-api" },
+    { name = "plone-app-registry" },
+    { name = "plone-protect" },
+    { name = "plone-registry" },
+    { name = "plone-z3cform" },
+    { name = "products-cmfcore" },
     { name = "psycopg", extras = ["binary"], marker = "extra == 'rdbms'", specifier = ">=3.2" },
+    { name = "sqlalchemy", marker = "extra == 'rdbms'", specifier = ">=2.0" },
     { name = "sqlmodel", marker = "extra == 'rdbms'", specifier = ">=0.0.22" },
+    { name = "transaction" },
+    { name = "z3c-form" },
+    { name = "zope-annotation" },
+    { name = "zope-component" },
+    { name = "zope-i18nmessageid" },
+    { name = "zope-interface" },
+    { name = "zope-lifecycleevent" },
+    { name = "zope-schema" },
+    { name = "zope2" },
 ]
 provides-extras = ["rdbms", "xlsx", "ods"]
 
