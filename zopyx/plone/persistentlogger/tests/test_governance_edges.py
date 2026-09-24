@@ -7,7 +7,6 @@ import unittest
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
-from uuid import uuid4
 
 from ..data_subject import (
     HOLD_KEY,
@@ -21,7 +20,7 @@ from ..data_subject import (
     release_hold,
     search_data_subject,
 )
-from ..integrity import IntegrityReport, verify_repository
+from ..integrity import verify_repository
 
 
 class GovernanceEdgeTests(unittest.TestCase):
