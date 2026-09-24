@@ -6,14 +6,14 @@ from datetime import datetime
 from typing import Any
 
 from .models import DeletionPreview, DeletionResult, RetentionPolicy, utc_now
-from .repository import AnnotationRepository
+from .storage import BaseLogStorage, get_repository
 
 
 class RetentionService:
     """Apply a retention policy to one Plone object."""
 
-    def __init__(self, context: Any, repository: AnnotationRepository | None = None):
-        self.repository = repository or AnnotationRepository(context)
+    def __init__(self, context: Any, repository: BaseLogStorage | None = None):
+        self.repository = repository or get_repository(context)
 
     def preview(
         self, policy: RetentionPolicy, now: datetime | None = None

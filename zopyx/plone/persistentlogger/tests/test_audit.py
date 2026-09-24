@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import unittest
+from datetime import date
 from unittest.mock import MagicMock, patch
 
 from persistent import Persistent
@@ -98,6 +99,17 @@ class AuditUnitTests(unittest.TestCase):
         self.assertEqual(_jsonable("x"), "x")
         self.assertEqual(_jsonable(("a", "b")), ["a", "b"])
         self.assertEqual(_jsonable({"k": ("a",)}), {"k": ["a"]})
+        self.assertEqual(_jsonable(date(2026, 1, 1)), "2026-01-01")
+
+        class Broken(Persistent):
+            """A getter that raises must not break the snapshot."""
+
+            title = "fallback"
+
+            def Title(self):
+                raise RuntimeError("broken getter")
+
+        self.assertEqual(_metadata(Broken())["title"], "fallback")
 
         meta = _metadata(self.context)
         self.assertEqual(meta["title"], "Old title")

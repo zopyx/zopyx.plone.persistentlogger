@@ -1,4 +1,9 @@
-"""Stable application API for logging, retention, and exports."""
+"""Stable application API for logging, retention, and exports.
+
+Every function resolves its repository through
+:func:`zopyx.plone.persistentlogger.storage.get_repository`, so callers do not
+need to know whether records are stored in the ZODB or in an RDBMS.
+"""
 
 from __future__ import annotations
 
@@ -9,21 +14,21 @@ import plone.api
 
 from .exports import export_events
 from .models import DeletionPreview, DeletionResult, LogEvent, RetentionPolicy
-from .repository import AnnotationRepository
 from .retention import RetentionService
+from .storage import get_repository
 
 
 def log_event(
     context: Any, comment: str, *, level: str = "info", **kwargs: Any
 ) -> dict[str, Any]:
-    """Append one event to the context's persistent log."""
+    """Append one event to the configured persistent log of ``context``."""
     event = LogEvent(
         comment=comment,
         severity=level,
         actor=kwargs.pop("actor", plone.api.user.get_current().getUserName()),
         **kwargs,
     )
-    return AnnotationRepository(context).append(event)
+    return get_repository(context).append(event)
 
 
 def preview_retention(
@@ -42,4 +47,4 @@ def execute_retention(
 
 def export_log(context: Any, format: str, **kwargs: Any) -> bytes:
     """Export one object's log in a supported format."""
-    return export_events(AnnotationRepository(context).events(), format, **kwargs)
+    return export_events(get_repository(context).events(), format, **kwargs)

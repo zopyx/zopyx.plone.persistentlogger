@@ -196,11 +196,20 @@ class BrowserLoggerTests(unittest.TestCase):
         self.context.portal_membership = MagicMock(
             checkPermission=MagicMock(return_value=True)
         )
-        with patch(
-            "zopyx.plone.persistentlogger.browser.logger.IPersistentLogger",
-            return_value=adapter,
+        repository = MagicMock()
+        repository.search.return_value = MagicMock(total=2)
+        with (
+            patch(
+                "zopyx.plone.persistentlogger.browser.logger.IPersistentLogger",
+                return_value=adapter,
+            ),
+            patch(
+                "zopyx.plone.persistentlogger.browser.logger.get_repository",
+                return_value=repository,
+            ),
         ):
             self.assertEqual(self.view.count(), 2)
+            repository.search.assert_called_with(limit=0)
             self.assertEqual(self.view.last_user(), "god")
             self.assertIsNotNone(self.view.last_date())
             self.assertTrue(self.view.is_manager())

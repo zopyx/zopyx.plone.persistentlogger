@@ -1,6 +1,7 @@
 """Temporary integration check for the retention GUI template rendering."""
 
 import unittest
+from pathlib import Path
 
 from zopyx.plone.persistentlogger.models import RetentionPolicy
 from zopyx.plone.persistentlogger.retention import RetentionService
@@ -49,7 +50,7 @@ class RenderCheck(unittest.TestCase):
         self.assertIn('name="action" value="delete"', html)
         self.assertIn('name="operation_id"', html)
 
-    def test_logger_table_renders(self):
+    def test_logger_grid_renders(self):
         from AccessControl.SecurityManagement import newSecurityManager
 
         from zopyx.plone.persistentlogger.api import log_event
@@ -61,9 +62,36 @@ class RenderCheck(unittest.TestCase):
         view = portal.restrictedTraverse("@@persistent-log")
         html = view()
         self.assertIn("Logging", html)
-        self.assertIn("render check entry", html)
-        self.assertIn("text-bg-warning", html)
         self.assertIn("persistent-log-export?format=json", html)
+        # the grid renders client side from the server side data source
+        self.assertIn("persistent-log-grid", html)
+        self.assertIn("ag-theme-quartz", html)
+        self.assertIn("persistent-log-quick", html)
+        self.assertIn("window.PERSISTENT_LOGGER_CONFIG", html)
+        self.assertIn("persistent-log-data", html)
+        # no entries are rendered into the page any more
+        self.assertNotIn("render check entry", html)
+        self.assertNotIn("datatables.js", html)
+
+    def test_grid_datasource_uses_the_infinite_row_model_api(self):
+        """Guard the agGrid contract of the shipped data source.
+
+        The grid runs in infinite row model mode, so agGrid (32.x) hands the
+        page ``successCallback(rows, lastRow)``/``failCallback()``.  The server
+        side row model's ``success()``/``fail()`` callbacks are not part of that
+        params object -- calling them aborts the first request with
+        ``TypeError: params.success is not a function`` and the grid stays
+        empty.
+        """
+        source = (
+            Path(__file__).parent.parent / "browser" / "resources" / "persistent-log.js"
+        ).read_text(encoding="utf-8")
+        self.assertIn("params.successCallback(", source)
+        self.assertIn("params.failCallback(", source)
+        self.assertNotIn("params.success(", source)
+        self.assertNotIn("params.fail(", source)
+        # the row count of the server side result is handed to the grid
+        self.assertIn("result.data.lastRow", source)
 
 
 def test_suite():

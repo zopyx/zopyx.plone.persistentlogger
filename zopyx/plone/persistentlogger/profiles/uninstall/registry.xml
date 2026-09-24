@@ -2,4 +2,6 @@
 <registry>
   <records interface="zopyx.plone.persistentlogger.interfaces.IAuditLoggingSettings"
            remove="true" />
+  <records interface="zopyx.plone.persistentlogger.interfaces.IStorageSettings"
+           remove="true" />
 </registry>

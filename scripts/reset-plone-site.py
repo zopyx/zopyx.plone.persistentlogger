@@ -22,6 +22,9 @@ portal = addPloneSite(
     # content types must be installed explicitly.
     extension_ids=(
         "plone.app.contenttypes:default",
+        # The theme layer: without it the Diazo transform and the theme CSS are
+        # not applied, even with a theme selected in the registry.
+        "plone.app.theming:default",
         "plonetheme.barceloneta:default",
     ),
     default_language="de",

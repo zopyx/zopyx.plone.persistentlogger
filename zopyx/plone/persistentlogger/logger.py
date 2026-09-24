@@ -11,7 +11,8 @@ from DateTime import DateTime
 from zope.annotation.interfaces import IAnnotations
 
 from .models import LogEvent, Severity
-from .repository import AnnotationRepository, _event_date
+from .storage import event_date as _event_date
+from .storage import get_repository
 
 LOG_KEY = "zopyx.plone.persistentlogger.connector.log"
 LOG_LAST_USER = "zopyx.plone.persistentlogger.connector.lastuser"
@@ -26,6 +27,11 @@ class IPersistentLogger(zope.interface.Interface):
 class PersistentLoggerAdapter:
     """An adapter for storing logging information as an annotation
     on a persistent object.
+
+    The records themselves are written through the configured storage
+    backend, so this adapter behaves identically with the ZODB and the
+    RDBMS backend. The last user and last date bookkeeping stays in the
+    object annotations.
     """
 
     def __init__(self, context):
@@ -33,7 +39,7 @@ class PersistentLoggerAdapter:
 
     @property
     def entries(self, min_datetime=None, max_datetime=None):
-        entries = AnnotationRepository(self.context).events()
+        entries = get_repository(self.context).events()
         if min_datetime is not None:
             min_datetime = _event_date({"date": min_datetime})
             entries = [entry for entry in entries if _event_date(entry) >= min_datetime]
@@ -44,7 +50,7 @@ class PersistentLoggerAdapter:
 
     def entry_by_uuid(self, target_uuid):
         """Find a logger entry by UUID."""
-        entry = AnnotationRepository(self.context).get(str(target_uuid))
+        entry = get_repository(self.context).get(str(target_uuid))
         if entry is not None:
             return entry
         raise ValueError(f"No log entry with UUID {target_uuid} found")
@@ -75,7 +81,7 @@ class PersistentLoggerAdapter:
             info_url=info_url,
             details=details,
         )
-        AnnotationRepository(self.context).append(event)
+        get_repository(self.context).append(event)
         annotations = IAnnotations(self.context)
         annotations[LOG_LAST_USER] = current_user
         annotations[LOG_LAST_DATE] = event.created_at
@@ -91,5 +97,4 @@ class PersistentLoggerAdapter:
 
     def clear(self):
         """Clear all logger entries"""
-        annotations = IAnnotations(self.context)
-        annotations[LOG_KEY] = OOBTree()
+        get_repository(self.context).clear()

@@ -14,18 +14,19 @@
             window.define = undefined;
             window.require = undefined;
         </script>
-        <script type="text/javascript" charset="utf8" tal:attributes="src string:$portal_url/++resource++zopyx.plone.persistentlogger/local.js"></script>
-        <script type="text/javascript" charset="utf8" tal:attributes="src string:$portal_url/++resource++zopyx.plone.persistentlogger/DataTables/datatables.js"></script>
+        <script type="text/javascript" charset="utf8" tal:attributes="src string:$portal_url/++resource++zopyx.plone.persistentlogger/aggrid/ag-grid-community.min.js"></script>
         <script>
             window.define = window.__define;
             window.require = window.__require;
             window.__define = undefined;
             window.__require = undefined;
         </script>
+        <script type="text/javascript" charset="utf8" tal:attributes="src string:$portal_url/++resource++zopyx.plone.persistentlogger/persistent-log.js"></script>
     </metal:slot>
 
     <metal:slot fill-slot="style_slot">
-        <link rel="stylesheet" type="text/css" tal:attributes="href string:$portal_url/++resource++zopyx.plone.persistentlogger/DataTables/datatables.css" />
+        <link rel="stylesheet" type="text/css" tal:attributes="href string:$portal_url/++resource++zopyx.plone.persistentlogger/aggrid/ag-grid.min.css" />
+        <link rel="stylesheet" type="text/css" tal:attributes="href string:$portal_url/++resource++zopyx.plone.persistentlogger/aggrid/ag-theme-quartz-no-font.min.css" />
         <link rel="stylesheet" type="text/css" tal:attributes="href string:$portal_url/++resource++zopyx.plone.persistentlogger/styles.css" />
     </metal:slot>
 
@@ -87,103 +88,22 @@
         </div>
       </div>
 
-      <table class="datatable table table-hover table-sm align-middle" id="logging" style="width: 100%">
-          <thead>
-              <tr>
-                  <th class="field-date" i18n:translate="">Date</th>
-                  <th class="field-level" i18n:translate="">Level</th>
-                  <th class="field-user" i18n:translate="">User</th>
-                  <th class="field-info_url" i18n:translate="">Info</th>
-                  <th class="field-comment" i18n:translate="">Comment</th>
-              </tr>
-          </thead>
+      <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
+        <input type="search" id="persistent-log-quick" class="form-control form-control-sm"
+               style="max-width: 22rem" placeholder="Quick filter…"
+               i18n:attributes="placeholder" />
+        <button type="button" id="persistent-log-reset" class="btn btn-outline-secondary btn-sm"
+                i18n:translate="">Reset filters</button>
+        <span id="persistent-log-status" class="small text-body-secondary ms-auto"></span>
+      </div>
 
-          <tbody>
-              <tr tal:repeat="entry python: view.entries()">
-                  <td class="field-date text-nowrap"
-                      tal:content="python: context.toLocalizedTime(entry['date'], True)"
-                      tal:attributes="data-sort python: entry['date'].isoformat()"/>
-                  <td class="field-level">
-                      <span class="badge"
-                            tal:attributes="class python: 'badge ' + view.level_class(entry['level'])"
-                            tal:content="entry/level"/>
-                  </td>
-                  <td class="field-user" tal:content="entry/username"/>
-                  <td class="field-info_url" tal:define="info_url entry/info_url|string:">
-                      <tal:if condition="info_url">
-                          <a tal:condition="python: info_url.startswith('http')"
-                             tal:attributes="href info_url"
-                             i18n:translate="">Info
-                        </a>
-                          <a tal:condition="not: python: info_url.startswith('http')"
-                             tal:attributes="href string:$portal_url/$info_url"
-                             i18n:translate="">Info
-                        </a>
-                      </tal:if>
-                  </td>
-                  <td class="field-comment">
-                      <span tal:content="structure entry/comment"/>
-                      <tal:if condition="entry/details">
-                        <button type="button" class="btn btn-link btn-sm p-0 ms-2 show-details"
-                                i18n:translate="">Details</button>
-                        <pre class="details-data"
-                             style="display: none"
-                             tal:content="entry/details"/>
-                      </tal:if>
-                  </td>
-              </tr>
-          </tbody>
-      </table>
+      <!-- Server side rendering: paging, sorting and filtering happen in
+           @@persistent-log-data, the browser only receives one page. -->
+      <div id="persistent-log-grid" class="ag-theme-quartz"
+           style="height: 70vh; width: 100%"></div>
 
-      <script type="text/javascript" tal:content="string: URL = '${context/absolute_url}'"></script>
-      <script type="text/javascript" tal:content="string: PORTAL_URL = '$portal_url'"></script>
-
-      <script type="text/javascript">
-
-        $(document).ready(function() {
-
-            $('body').on('click', '.show-details', function() {
-                $(this).siblings('.details-data').toggle('fast');
-            });
-
-            $('.datatable').each(function() {
-
-                var thead = $(this).find('thead');
-                var tfoot = $(this).find('tfoot');
-                if (!tfoot.length && thead.length) {
-                    var html = thead.wrap('<p/>').parent().html();
-                    html = html.replace('thead', 'tfoot');
-                    $(html).appendTo($(this));
-                }
-            });
-
-            $('.datatable tfoot th').each( function (i) {
-                var title = $(this).text();
-                $(this).html( '<input type="text" placeholder="' + title +'..." data-index="'+i+'" />' );
-            });
-
-            var table = $('.datatable').DataTable({
-                dom: '<"clear">lfrtip',
-                lengthMenu: [[10, 25, 50, 500, -1], [10, 25, 50, 500, "All"]],
-                pageLength: 25,
-                order:  [[0, "desc"]]
-            });
-
-            table.columns().every( function () {
-                var that = this;
-                $( 'input', this.footer() ).on( 'keyup change', function () {
-                    if ( that.search() !== this.value ) {
-                        that
-                            .search( this.value )
-                            .draw();
-                    }
-                } );
-            });
-
-
-
-        });
-      </script>
+      <script type="text/javascript"
+              tal:content="structure python:'window.PERSISTENT_LOGGER_CONFIG = %s;' % view.grid_config()"></script>
 
   </metal:content-core>
 </metal:main>

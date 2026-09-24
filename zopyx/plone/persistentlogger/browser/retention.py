@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
 from dataclasses import asdict
 from typing import Any
 from uuid import UUID
@@ -12,20 +11,19 @@ import plone.api
 from plone.protect import CheckAuthenticator
 from Products.Five.browser import BrowserView
 from Products.Five.browser.pagetemplatefile import ViewPageTemplateFile
-from zope.annotation.interfaces import IAnnotations
 
 from ..exports import export_events
 from ..models import DeletionPreview, RetentionPolicy
-from ..repository import PREVIEW_KEY, AnnotationRepository
 from ..retention import RetentionService
 from ..serialization import json_default
+from ..storage import BaseLogStorage, get_repository
 
 
 class Retention(BrowserView):
     """Preview and execute object-scoped retention operations."""
 
     def preview(self) -> str:
-        repository = AnnotationRepository(self.context)
+        repository = get_repository(self.context)
         configured = repository.policy()
         policy = RetentionPolicy(
             enabled=configured.enabled,
@@ -45,13 +43,8 @@ class Retention(BrowserView):
             return "POST required"
         CheckAuthenticator(self.request)
         operation_id = UUID(str(self.request.form["operation_id"]))
-        repository = AnnotationRepository(self.context)
-        previews = IAnnotations(self.context).get(
-            "zopyx.plone.persistentlogger.connector.previews"
-        )
-        if previews is None:
-            previews = {}
-        preview = previews.get(str(operation_id))
+        repository = get_repository(self.context)
+        preview = repository.get_preview(operation_id)
         if preview is None:
             self.request.response.setStatus(400)
             return "deletion preview is missing or stale"
@@ -67,9 +60,7 @@ class Export(BrowserView):
 
     def __call__(self) -> bytes:
         format_name = str(self.request.form.get("format", "json"))
-        data = export_events(
-            list(AnnotationRepository(self.context).events()), format_name
-        )
+        data = export_events(list(get_repository(self.context).events()), format_name)
         content_types = {
             "json": "application/json",
             "csv": "text/csv; charset=utf-8",
@@ -94,8 +85,8 @@ class RetentionGUI(BrowserView):
         self.messages: list[tuple[str, str]] = []
 
     @property
-    def repository(self) -> AnnotationRepository:
-        return AnnotationRepository(self.context)
+    def repository(self) -> BaseLogStorage:
+        return get_repository(self.context)
 
     @property
     def policy(self) -> RetentionPolicy:
@@ -106,11 +97,7 @@ class RetentionGUI(BrowserView):
         operation_id = self.request.form.get("operation_id")
         if not operation_id:
             return None
-        previews = IAnnotations(self.context).get(PREVIEW_KEY)
-        if not isinstance(previews, Mapping):
-            return None
-        value = previews.get(str(operation_id))
-        return value if isinstance(value, DeletionPreview) else None
+        return self.repository.get_preview(operation_id)
 
     @property
     def preview_events(self) -> list[dict[str, Any]]:

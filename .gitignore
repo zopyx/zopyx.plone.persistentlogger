@@ -16,6 +16,8 @@ report
 include
 lib
 instance.yaml
+.coverage
+docs/build/
 instance/
 .venv/
 docs/build/

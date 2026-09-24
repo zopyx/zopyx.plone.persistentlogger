@@ -15,4 +15,16 @@
   >
     <permission>Manage portal</permission>
   </configlet>
+  <configlet action_id="zopyx.plone.persistentlogger.storage"
+             appId="zopyx.plone.persistentlogger"
+             category="plone-general"
+             condition_expr=""
+             icon_expr="string:database"
+             title="Audit log storage"
+             url_expr="string:${portal_url}/@@audit-storage-settings"
+             visible="True"
+             i18n:attributes="title"
+  >
+    <permission>Manage portal</permission>
+  </configlet>
 </object>

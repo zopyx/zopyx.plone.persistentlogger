@@ -35,6 +35,15 @@
 
     <browser:page
         for="*"
+        name="persistent-log-data"
+        class=".logger.Logging"
+        attribute="entries_data"
+        layer="zopyx.plone.persistentlogger.interfaces.BrowserLayer"
+        permission="cmf.ModifyPortalContent"
+    />
+
+    <browser:page
+        for="*"
         name="persistent-log-export"
         class=".retention.Export"
         permission="cmf.ManagePortal"
@@ -67,6 +76,13 @@
         for="zope.interface.Interface"
         name="audit-logging-settings"
         class=".settings.AuditLoggingSettingsView"
+        permission="cmf.ManagePortal"
+    />
+
+    <browser:page
+        for="zope.interface.Interface"
+        name="audit-storage-settings"
+        class=".storage.StorageSettingsView"
         permission="cmf.ManagePortal"
     />
 

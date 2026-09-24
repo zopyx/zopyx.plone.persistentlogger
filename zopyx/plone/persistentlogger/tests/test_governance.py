@@ -1,4 +1,10 @@
-"""Unit tests for the governance domain, repository, and exporters."""
+"""Unit tests for the governance domain, exporters and browser views.
+
+The storage backends themselves are covered by the contract suite that runs
+against both backends (``test_storage_zodb``/``test_storage_rdbms``); this
+module covers the domain objects, the serialization helpers, the exporters
+and the manager facing browser views, which are backend agnostic.
+"""
 
 from __future__ import annotations
 
@@ -14,7 +20,12 @@ from zipfile import ZipFile
 
 from persistent import Persistent
 
-from zopyx.plone.persistentlogger.api import export_log, log_event
+from zopyx.plone.persistentlogger.api import (
+    execute_retention,
+    export_log,
+    log_event,
+    preview_retention,
+)
 from zopyx.plone.persistentlogger.browser.retention import (
     Export as BrowserExport,
 )
@@ -31,17 +42,20 @@ from zopyx.plone.persistentlogger.models import (
     RetentionPolicy,
     Severity,
 )
-from zopyx.plone.persistentlogger.repository import (
-    AnnotationRepository,
-    _event_date,
-    object_uid,
-)
 from zopyx.plone.persistentlogger.retention import RetentionService
 from zopyx.plone.persistentlogger.serialization import (
     canonical_json,
     event_digest,
     json_default,
 )
+from zopyx.plone.persistentlogger.storage import (
+    AnnotationRepository,
+    StorageConfigurationError,
+    event_date,
+    get_repository,
+    object_uid,
+)
+from zopyx.plone.persistentlogger.storage import factory as storage_factory
 
 
 class Context(Persistent):
@@ -56,10 +70,11 @@ class GovernanceTests(unittest.TestCase):
         self.context = Context()
         self.annotation_store = {}
         self.annotation_patch = patch(
-            "zopyx.plone.persistentlogger.repository.IAnnotations",
+            "zopyx.plone.persistentlogger.storage.zodb.IAnnotations",
             return_value=self.annotation_store,
         )
         self.annotation_patch.start()
+        self.addCleanup(storage_factory.clear_cache)
         self.repository = AnnotationRepository(self.context)
         self.now = datetime(2026, 1, 1, tzinfo=UTC)
 
@@ -111,43 +126,6 @@ class GovernanceTests(unittest.TestCase):
             json_default(object())
         self.assertIn('"value":1', canonical_json({"value": 1}))
 
-    def test_repository_policy_legacy_and_missing_delete(self):
-        self.assertEqual(object_uid(self.context), "https://example.test/context")
-        with patch("plone.uuid.interfaces.IUUID", return_value="resolved-uid"):
-            self.assertEqual(object_uid(self.context), "resolved-uid")
-        self.repository.annotations["invalid"] = "not an event"
-        self.assertEqual(self.repository.events(), [])
-        del self.repository.annotations["invalid"]
-        self.assertFalse(self.repository.policy().enabled)
-        configured = RetentionPolicy(enabled=True, older_than_days=30, max_entries=2)
-        self.repository.set_policy(configured)
-        self.assertEqual(self.repository.policy(), configured)
-        legacy_id = uuid4()
-        self.repository.annotations[datetime(2020, 1, 1)] = {
-            "uuid": str(legacy_id),
-            "date": datetime(2020, 1, 1),
-            "comment": "legacy",
-        }
-        self.assertIsNotNone(self.repository.get(str(legacy_id)))
-        self.assertIn(str(legacy_id), self.repository.annotations)
-        self.assertFalse(
-            any(key == datetime(2020, 1, 1) for key in self.repository.annotations)
-        )
-        self.assertEqual(
-            _event_date({"date": "invalid"}), datetime.min.replace(tzinfo=UTC)
-        )
-        preview = self.repository.preview_delete(configured, self.now)
-        del self.repository.annotations[str(legacy_id)]
-        result = self.repository.delete_preview(preview, "remove obsolete legacy event")
-        self.assertEqual((result.deleted, result.missing), (0, 1))
-        first = self.repository.record_governance(
-            "export", "manager", "export requested"
-        )
-        second = self.repository.record_governance(
-            "export", "manager", "export requested"
-        )
-        self.assertEqual(second["previous_digest"], first["integrity_digest"])
-
         with self.assertRaises(ValueError):
             LogEvent(comment="", created_at=self.now)
         with self.assertRaises(ValueError):
@@ -156,38 +134,83 @@ class GovernanceTests(unittest.TestCase):
         second = self.event(comment="second")
         self.assertNotEqual(event_digest(first), event_digest(second))
 
-    def test_repository_append_preview_delete_and_journal(self):
-        old = self.event(self.now - timedelta(days=400), "old")
-        newest = self.event(self.now, "new")
-        self.repository.append(newest)
-        self.repository.append(old)
-        self.assertEqual(len(self.repository.events()), 2)
-        preview = self.repository.preview_delete(
-            RetentionPolicy(enabled=True, older_than_days=365, max_entries=100),
-            self.now,
+    def test_object_uid_and_legacy_event_dates(self):
+        self.assertEqual(object_uid(self.context), "https://example.test/context")
+        with patch("plone.uuid.interfaces.IUUID", return_value="resolved-uid"):
+            self.assertEqual(object_uid(self.context), "resolved-uid")
+        self.assertEqual(
+            event_date({"date": "invalid"}), datetime.min.replace(tzinfo=UTC)
         )
-        self.assertEqual(preview.event_ids, (old.event_id,))
-        with self.assertRaises(ValueError):
-            self.repository.delete_preview(preview, "short")
-        result = self.repository.delete_preview(preview, "retention policy cleanup")
-        self.assertEqual((result.deleted, result.missing), (1, 0))
+        self.assertEqual(
+            event_date({"created_at": datetime(2026, 1, 1)}),
+            datetime(2026, 1, 1, tzinfo=UTC),
+        )
+
+    def test_repository_handles_legacy_and_missing_events(self):
+        self.assertFalse(self.repository.policy().enabled)
+        configured = RetentionPolicy(enabled=True, older_than_days=30, max_entries=2)
+        self.repository.set_policy(configured)
+        self.assertEqual(self.repository.policy(), configured)
+
+        legacy_id = uuid4()
+        self.repository.annotations[datetime(2020, 1, 1)] = {
+            "uuid": str(legacy_id),
+            "date": datetime(2020, 1, 1),
+            "comment": "legacy",
+        }
+        self.assertIsNotNone(self.repository.get(str(legacy_id)))
+        self.assertFalse(
+            any(key == datetime(2020, 1, 1) for key in self.repository.annotations)
+        )
+
+        preview = self.repository.preview_delete(configured, self.now)
+        del self.repository.annotations[str(legacy_id)]
+        result = self.repository.delete_preview(preview, "remove obsolete legacy event")
+        self.assertEqual((result.deleted, result.missing), (0, 1))
+
+    def test_repository_appends_and_chains_digests(self):
+        older = self.event(self.now - timedelta(days=400), "old")
+        newest = self.event(self.now, "new")
+        self.repository.append(older)
+        self.repository.append(newest)
+        self.assertEqual(
+            [entry["comment"] for entry in self.repository.events()], ["old", "new"]
+        )
+        # Records are chained in the canonical (chronological) order, so
+        # each record links to the one before it.
+        first, second = self.repository.events()
+        self.assertEqual(first["previous_digest"], "")
+        self.assertEqual(second["previous_digest"], first["integrity_digest"])
+        self.assertNotEqual(first["integrity_digest"], second["integrity_digest"])
+
         journal = self.repository.record_governance(
             "delete", "manager", "retention policy cleanup", deleted=1
         )
         self.assertEqual(journal["action"], "delete")
         self.assertTrue(journal["integrity_digest"])
-        self.assertEqual(len(self.repository.events()), 1)
 
     def test_stale_preview_is_rejected(self):
-        old = self.event(self.now - timedelta(days=400))
-        self.repository.append(old)
+        self.repository.append(self.event(self.now - timedelta(days=400)))
         preview = self.repository.preview_delete(
             RetentionPolicy(enabled=True), self.now
         )
-        self.repository.journal()[str(preview.operation_id)] = preview
-        preview = replace(preview, selection_digest="changed")
+        stale = replace(preview, selection_digest="changed")
         with self.assertRaises(ValueError):
-            self.repository.delete_preview(preview, "retention policy cleanup")
+            self.repository.delete_preview(stale, "retention policy cleanup")
+
+    def test_get_repository_honours_the_configured_backend(self):
+        settings = MagicMock(backend="zodb", database_url="")
+        repository = get_repository(self.context, settings=settings)
+        self.assertIsInstance(repository, AnnotationRepository)
+        with (
+            patch.dict("os.environ", {"ZOPYX_PERSISTENTLOGGER_DATABASE_URL": ""}),
+            self.assertRaises(StorageConfigurationError),
+        ):
+            get_repository(
+                self.context, settings=MagicMock(backend="rdbms", database_url="")
+            )
+        with self.assertRaises(StorageConfigurationError):
+            get_repository(self.context, settings=MagicMock(backend="unknown"))
 
     def test_public_api(self):
         with patch(
@@ -245,13 +268,7 @@ class GovernanceTests(unittest.TestCase):
                 "response": response,
             },
         )()
-        with (
-            patch("zopyx.plone.persistentlogger.browser.retention.CheckAuthenticator"),
-            patch(
-                "zopyx.plone.persistentlogger.browser.retention.IAnnotations",
-                return_value=self.annotation_store,
-            ),
-        ):
+        with patch("zopyx.plone.persistentlogger.browser.retention.CheckAuthenticator"):
             self.assertEqual(
                 BrowserRetention(self.context, post_request).delete(),
                 "deletion preview is missing or stale",
@@ -291,10 +308,6 @@ class GovernanceTests(unittest.TestCase):
             },
         )()
         with (
-            patch(
-                "zopyx.plone.persistentlogger.browser.retention.IAnnotations",
-                return_value=self.annotation_store,
-            ),
             patch("zopyx.plone.persistentlogger.browser.retention.CheckAuthenticator"),
             patch(
                 "zopyx.plone.persistentlogger.browser.retention.plone.api.user.get_current",
@@ -332,10 +345,6 @@ class GovernanceTests(unittest.TestCase):
         with (
             patch.object(RetentionGUI, "template", MagicMock(return_value="rendered")),
             patch("zopyx.plone.persistentlogger.browser.retention.CheckAuthenticator"),
-            patch(
-                "zopyx.plone.persistentlogger.browser.retention.IAnnotations",
-                return_value=self.annotation_store,
-            ),
             patch(
                 "zopyx.plone.persistentlogger.browser.retention.plone.api.user.get_current",
                 return_value=MagicMock(getUserName=MagicMock(return_value="manager")),
@@ -434,6 +443,30 @@ class GovernanceTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             export_events([event], "json", max_bytes=1)
 
+    def test_api_retention_helpers(self):
+        self.repository.append(self.event(self.now - timedelta(days=400), "old"))
+        policy = RetentionPolicy(enabled=True, older_than_days=30, max_entries=10)
+        preview = preview_retention(self.context, policy, self.now)
+        self.assertEqual(len(preview.event_ids), 1)
+        result = execute_retention(
+            self.context, preview, "retention policy cleanup", "manager"
+        )
+        self.assertEqual(result.deleted, 1)
+        self.assertEqual(self.repository.events(), [])
+
+    def test_export_request_validates_its_limits(self):
+        with self.assertRaisesRegex(ValueError, "unsupported export format"):
+            ExportRequest(format="pdf")
+        with self.assertRaisesRegex(ValueError, "max_entries"):
+            ExportRequest(format="json", max_entries=0)
+        with self.assertRaisesRegex(ValueError, "max_bytes"):
+            ExportRequest(format="json", max_bytes=0)
+
 
 def test_suite():
-    return unittest.defaultTestLoader.loadTestsFromTestCase(GovernanceTests)
+    from unittest import TestLoader, TestSuite
+
+    loader = TestLoader()
+    suite = TestSuite()
+    suite.addTest(loader.loadTestsFromTestCase(GovernanceTests))
+    return suite

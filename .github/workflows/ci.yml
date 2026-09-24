@@ -35,11 +35,11 @@ jobs:
       - name: Sync locked environment
         run: uv sync --locked --all-groups
 
-      - name: Run tests with branch coverage
-        run: |
-          uv run coverage run --branch -m zope.testrunner \
-            --path . --package zopyx.plone.persistentlogger
-          uv run coverage report --fail-under=98 -m
+      - name: Run the full suite (ZODB and PostgreSQL) with coverage
+        # `make test` requires the PostgreSQL test container and enforces the
+        # coverage threshold from pyproject.toml, so CI cannot silently drop
+        # the RDBMS half of the suite.
+        run: make test
 
       - name: Check Ruff lint
         run: uv run ruff check zopyx
