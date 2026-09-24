@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
+from .data_subject import is_held
 from .models import DeletionPreview, DeletionResult, RetentionPolicy, utc_now
 from .storage import LogRepository, get_repository
 
@@ -21,6 +22,7 @@ class RetentionService:
     """Apply a retention policy to one Plone object."""
 
     def __init__(self, context: Any, repository: LogRepository | None = None):
+        self.context = context
         self.repository = repository or get_repository(context)
 
     def preview(
@@ -33,25 +35,28 @@ class RetentionService:
     def execute(
         self, preview: DeletionPreview, reason: str, actor: str
     ) -> DeletionResult:
-        try:
-            return self.repository.delete_and_journal(preview, reason, actor)
-        except ValueError:
-            raise
-        except Exception as exc:
-            # An atomic repository operation rolls back every selected event
-            # when evidence cannot be committed.  Report those events as
-            # failed, not deleted, so callers do not mistake an error for a
-            # partially successful retention run.
-            result = DeletionResult(
-                preview.operation_id,
-                len(preview.event_ids),
-                len(preview.event_ids),
-                0,
-                0,
-                len(preview.event_ids),
-                reason,
-            )
-            raise RetentionExecutionError(result, exc) from exc
+        with self.repository.retention_lock():
+            if any(is_held(self.context, event_id) for event_id in preview.event_ids):
+                raise ValueError("legal hold blocks deletion of one or more events")
+            try:
+                return self.repository.delete_and_journal(preview, reason, actor)
+            except ValueError:
+                raise
+            except Exception as exc:
+                # An atomic repository operation rolls back every selected event
+                # when evidence cannot be committed.  Report those events as
+                # failed, not deleted, so callers do not mistake an error for a
+                # partially successful retention run.
+                result = DeletionResult(
+                    preview.operation_id,
+                    len(preview.event_ids),
+                    len(preview.event_ids),
+                    0,
+                    0,
+                    len(preview.event_ids),
+                    reason,
+                )
+                raise RetentionExecutionError(result, exc) from exc
 
     def set_policy(self, policy: RetentionPolicy, actor: str, reason: str) -> None:
         self.repository.set_policy(policy)

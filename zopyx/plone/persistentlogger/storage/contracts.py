@@ -111,3 +111,7 @@ class LogRepository(Protocol):
     ) -> dict[str, Any]:
         """Append one governance record."""
         ...
+
+    def retention_lock(self) -> Any:
+        """Return a context manager serializing hold and retention changes."""
+        ...

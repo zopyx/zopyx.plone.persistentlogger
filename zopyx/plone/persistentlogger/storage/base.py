@@ -27,6 +27,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Callable
+from contextlib import contextmanager
 from datetime import datetime, timedelta
 from threading import Lock, RLock
 from typing import Any
@@ -336,6 +337,17 @@ class BaseLogStorage(ABC):
 
     def _lock(self, kind: str) -> RLock:
         return _lock_for(f"{self._lock_namespace()}:{kind}", self.object_uid())
+
+    @contextmanager
+    def retention_lock(self):
+        """Serialize legal-hold changes and retention per object.
+
+        This process-local guard complements the backend transaction.  ZODB
+        conflict resolution or the RDBMS transaction remains the authoritative
+        cross-request boundary when multiple workers are involved.
+        """
+        with self._lock("retention"):
+            yield
 
     def _load_event(self, event_id: str) -> dict[str, Any] | None:
         """Return a single event record. Backends may override for speed."""

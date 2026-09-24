@@ -3,6 +3,19 @@
   <permissions>
     <permission acquire="False" name="View audit log">
       <role name="Manager" />
+      <role name="Auditor" />
+    </permission>
+    <permission acquire="False" name="Export audit log">
+      <role name="Manager" />
+    </permission>
+    <permission acquire="False" name="Manage audit retention">
+      <role name="Manager" />
+    </permission>
+    <permission acquire="False" name="Manage audit legal holds">
+      <role name="Manager" />
+    </permission>
+    <permission acquire="False" name="Create audit demo data">
+      <role name="Manager" />
     </permission>
   </permissions>
 </rolemap>

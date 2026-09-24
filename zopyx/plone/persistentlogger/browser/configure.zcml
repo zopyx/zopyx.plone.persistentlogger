@@ -11,6 +11,23 @@
         title="View audit log"
     />
 
+    <permission
+        id="zopyx.plone.persistentlogger.ExportAuditLog"
+        title="Export audit log"
+    />
+    <permission
+        id="zopyx.plone.persistentlogger.ManageAuditRetention"
+        title="Manage audit retention"
+    />
+    <permission
+        id="zopyx.plone.persistentlogger.ManageAuditHold"
+        title="Manage audit legal holds"
+    />
+    <permission
+        id="zopyx.plone.persistentlogger.CreateAuditDemo"
+        title="Create audit demo data"
+    />
+
     <browser:page
         for="*"
         name="logger-demo"
@@ -51,7 +68,7 @@
         for="*"
         name="persistent-log-export"
         class=".retention.Export"
-        permission="cmf.ManagePortal"
+        permission="zopyx.plone.persistentlogger.ExportAuditLog"
     />
 
     <browser:page
@@ -59,7 +76,7 @@
         name="persistent-log-retention-preview"
         class=".retention.Retention"
         attribute="preview"
-        permission="cmf.ManagePortal"
+        permission="zopyx.plone.persistentlogger.ManageAuditRetention"
     />
 
     <browser:page
@@ -67,14 +84,14 @@
         name="persistent-log-retention-delete"
         class=".retention.Retention"
         attribute="delete"
-        permission="cmf.ManagePortal"
+        permission="zopyx.plone.persistentlogger.ManageAuditRetention"
     />
 
     <browser:page
         for="*"
         name="persistent-log-retention"
         class=".retention.RetentionGUI"
-        permission="cmf.ManagePortal"
+        permission="zopyx.plone.persistentlogger.ManageAuditRetention"
     />
 
     <browser:page
@@ -88,6 +105,36 @@
         for="zope.interface.Interface"
         name="audit-storage-settings"
         class=".storage.StorageSettingsView"
+        permission="cmf.ManagePortal"
+    />
+
+    <browser:page
+        for="*"
+        name="persistent-log-api"
+        class=".api.AuditAPI"
+        layer="zopyx.plone.persistentlogger.interfaces.BrowserLayer"
+        permission="zopyx.plone.persistentlogger.ViewAuditLog"
+    />
+    <browser:page
+        for="*"
+        name="persistent-log-api-export"
+        class=".api.AuditExportAPI"
+        layer="zopyx.plone.persistentlogger.interfaces.BrowserLayer"
+        permission="zopyx.plone.persistentlogger.ExportAuditLog"
+    />
+    <browser:page
+        for="*"
+        name="persistent-log-api-hold"
+        class=".api.HoldAPI"
+        layer="zopyx.plone.persistentlogger.interfaces.BrowserLayer"
+        permission="zopyx.plone.persistentlogger.ManageAuditHold"
+    />
+
+    <browser:page
+        for="*"
+        name="persistent-log-integrity"
+        class=".integrity.IntegrityHealthView"
+        layer="zopyx.plone.persistentlogger.interfaces.BrowserLayer"
         permission="cmf.ManagePortal"
     />
 
