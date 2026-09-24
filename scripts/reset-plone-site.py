@@ -4,6 +4,9 @@ Executed by ``zconsole run`` with the Zope application bound as ``app``.
 This script is intended for local development only.
 """
 
+# ``app`` is injected by ``zconsole run``.
+# ruff: noqa: F821
+
 from Products.CMFPlone.factory import addPloneSite
 from transaction import commit
 

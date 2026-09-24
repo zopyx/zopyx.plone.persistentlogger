@@ -125,7 +125,6 @@ def get_logger(
     log_root=LOG_ROOT,
     level=DEFAULT_LEVEL,
 ):
-
     LOG = new_logger()
     log_name = None
     json_log_name = None
