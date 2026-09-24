@@ -66,6 +66,13 @@
     width: 100%;
     min-width: 0;
     overflow-x: auto;
+    outline-offset: 0.2rem;
+}
+
+.persistent-log-grid {
+    height: min(70vh, 48rem);
+    min-height: 20rem;
+    width: 100%;
 }
 
 .persistent-log-grid-container .ag-root-wrapper {
@@ -74,9 +81,48 @@
 
 .table-responsive {
     overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+.persistent-log-actions {
+    min-width: 0;
+}
+
+.persistent-log-quick-filter {
+    max-width: 22rem;
+}
+
+.persistent-log-actions .btn-group,
+.persistent-log-actions > .btn {
+    flex: 0 0 auto;
+}
+
+.persistent-log-grid-container:focus-visible,
+.table-responsive:focus-visible {
+    outline: 0.2rem solid var(--bs-primary);
 }
 
 @media (max-width: 767.98px) {
+    .persistent-log-heading,
+    .persistent-log-actions {
+        width: 100%;
+    }
+
+    .persistent-log-actions > .btn,
+    .persistent-log-actions > .btn-group {
+        flex: 1 1 auto;
+    }
+
+    .persistent-log-quick-filter {
+        max-width: none;
+        width: 100%;
+    }
+
+    .persistent-log-grid {
+        height: 65vh;
+        min-height: 18rem;
+    }
+
     .persistent-log-grid-container .ag-root-wrapper {
         min-width: 34rem;
     }

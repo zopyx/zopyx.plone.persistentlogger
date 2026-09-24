@@ -1,25 +1,28 @@
 {
-  "$schema": "https://biomejs.dev/schemas/2.5.14/schema.json",
-  "files": {
-    "includes": ["zopyx/plone/persistentlogger/browser/resources/persistent-log.js"]
-  },
-  "formatter": {
-    "enabled": false
-  },
-  "linter": {
-    "enabled": true,
-    "rules": {
-      "recommended": true,
-      "complexity": {
-        "useArrowFunction": "off",
-        "useOptionalChain": "off"
-      },
-      "style": {
-        "useTemplate": "off"
-      },
-      "suspicious": {
-        "noRedundantUseStrict": "off"
-      }
-    }
-  }
+	"$schema": "https://biomejs.dev/schemas/2.5.14/schema.json",
+	"files": {
+		"includes": [
+			"zopyx/plone/persistentlogger/browser/resources/persistent-log.js",
+			"zopyx/plone/persistentlogger/tests/test_persistent_log_js.mjs"
+		]
+	},
+	"formatter": {
+		"enabled": false
+	},
+	"linter": {
+		"enabled": true,
+		"rules": {
+			"preset": "recommended",
+			"complexity": {
+				"useArrowFunction": "off",
+				"useOptionalChain": "off"
+			},
+			"style": {
+				"useTemplate": "off"
+			},
+			"suspicious": {
+				"noRedundantUseStrict": "off"
+			}
+		}
+	}
 }

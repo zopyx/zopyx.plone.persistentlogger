@@ -5,14 +5,19 @@ from plone.app.registry.browser.controlpanel import (
     RegistryEditForm,
 )
 from plone.z3cform import layout
+from zope.i18nmessageid import MessageFactory
 
 from zopyx.plone.persistentlogger.interfaces import IAuditLoggingSettings
+
+_ = MessageFactory("zopyx.plone.persistentlogger")
 
 
 class AuditLoggingSettingsForm(RegistryEditForm):
     schema = IAuditLoggingSettings
-    label = "Audit logging"
-    description = "Log content creation and metadata changes on this site."
+    label = _("Audit logging settings")
+    description = _(
+        "Enable audit logging and choose which content types are recorded."
+    )
 
 
 AuditLoggingSettingsView = layout.wrap_form(

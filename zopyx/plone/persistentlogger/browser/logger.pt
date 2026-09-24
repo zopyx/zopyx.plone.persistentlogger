@@ -35,16 +35,18 @@
     <metal:content-core define-macro="content-core"
         tal:define="toLocalizedTime nocall:context/@@plone/toLocalizedTime">
 
-      <div class="d-flex justify-content-between align-items-center mb-3">
+      <div class="persistent-log-heading d-flex flex-wrap gap-2 justify-content-between align-items-center mb-3">
         <h2 id="persistent-log-title" class="mb-0" i18n:translate="">Logging</h2>
-        <div class="btn-group">
+        <div class="persistent-log-actions btn-toolbar gap-2" role="toolbar" aria-label="Audit log actions"
+             i18n:attributes="aria-label">
           <tal:manager condition="view/is_manager">
             <a class="btn btn-outline-secondary btn-sm"
                tal:attributes="href string:${context/absolute_url}/@@persistent-log-retention"
                i18n:translate="">Retention</a>
-            <div class="btn-group" role="group">
+            <div class="btn-group" role="group" aria-label="Export audit log"
+                 i18n:attributes="aria-label">
               <button type="button" class="btn btn-outline-primary btn-sm dropdown-toggle"
-                      data-bs-toggle="dropdown" aria-expanded="false" i18n:translate="">Export</button>
+                      data-bs-toggle="dropdown" aria-expanded="false" aria-haspopup="true" i18n:translate="">Export</button>
               <ul class="dropdown-menu dropdown-menu-end">
                 <li><a class="dropdown-item" tal:attributes="href string:${context/absolute_url}/@@persistent-log-export?format=json">JSON</a></li>
                 <li><a class="dropdown-item" tal:attributes="href string:${context/absolute_url}/@@persistent-log-export?format=csv">CSV</a></li>
@@ -90,24 +92,23 @@
 
       <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
         <label class="visually-hidden" for="persistent-log-quick" i18n:translate="">Quick filter entries</label>
-        <input type="search" id="persistent-log-quick" class="form-control form-control-sm"
-               style="max-width: 22rem" placeholder="Quick filter…"
-               aria-label="Quick filter entries"
-               i18n:attributes="placeholder" />
+        <input type="search" id="persistent-log-quick" class="form-control form-control-sm persistent-log-quick-filter" placeholder="Quick filter…"
+               aria-label="Quick filter entries" i18n:attributes="placeholder aria-label" />
         <button type="button" id="persistent-log-reset" class="btn btn-outline-secondary btn-sm"
                 i18n:translate="">Reset filters</button>
         <span id="persistent-log-status" class="small text-body-secondary ms-auto"
-              role="status" aria-live="polite" aria-atomic="true"></span>
+              role="status" aria-live="polite" aria-atomic="true" i18n:translate="">Loading entries…</span>
         <button type="button" id="persistent-log-retry" class="btn btn-outline-danger btn-sm"
-                hidden="hidden" i18n:translate="">Try again</button>
+                hidden="hidden" aria-controls="persistent-log-grid" i18n:translate="">Try again</button>
       </div>
 
       <!-- Server side rendering: paging, sorting and filtering happen in
            @@persistent-log-data, the browser only receives one page. -->
-      <div class="persistent-log-grid-container" role="region"
-           aria-labelledby="persistent-log-title">
-        <div id="persistent-log-grid" class="ag-theme-quartz"
-             style="height: 70vh; width: 100%"></div>
+      <div id="persistent-log-grid-region" class="persistent-log-grid-container" role="region"
+           aria-labelledby="persistent-log-title" aria-describedby="persistent-log-status"
+           aria-busy="true" tabindex="0">
+        <div id="persistent-log-grid" class="ag-theme-quartz persistent-log-grid"
+             aria-label="Audit log entries" i18n:attributes="aria-label"></div>
       </div>
 
       <script type="text/javascript"

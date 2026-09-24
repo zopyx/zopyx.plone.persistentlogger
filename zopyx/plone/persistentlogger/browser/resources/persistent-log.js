@@ -10,6 +10,7 @@
     "use strict";
 
     var GRID_ID = "persistent-log-grid";
+    var GRID_REGION_ID = "persistent-log-grid-region";
     var STATUS_ID = "persistent-log-status";
     var QUICK_ID = "persistent-log-quick";
 
@@ -108,17 +109,31 @@
         });
     }
 
-    function gridOptions(config, status, retry) {
+    function boundedNumber(value, fallback, minimum, maximum) {
+        var number = Number(value);
+        if (!Number.isFinite(number)) {
+            return fallback;
+        }
+        return Math.min(Math.max(Math.round(number), minimum), maximum);
+    }
+
+    function gridOptions(config, status, retry, gridRegion) {
+        var cacheBlockSize = boundedNumber(config.cacheBlockSize, 100, 1, 100);
+        var pageSize = boundedNumber(config.pageSize, 25, 10, 100);
         return {
             columnDefs: buildColumnDefs(config.columns),
             rowModelType: "infinite",
-            cacheBlockSize: config.cacheBlockSize || 100,
+            cacheBlockSize: cacheBlockSize,
             cacheOverflowSize: 2,
+            maxBlocksInCache: 3,
             maxConcurrentDatasourceRequests: 2,
             infiniteInitialRowCount: 1,
             pagination: true,
-            paginationPageSize: config.pageSize || 25,
-            paginationPageSizeSelector: [10, 25, 50, 100, 250],
+            paginationPageSize: pageSize,
+            paginationPageSizeSelector: [10, 25, 50, 100],
+            ensureDomOrder: true,
+            overlayNoRowsTemplate:
+                '<span class="ag-overlay-no-rows" role="status">No entries found.</span>',
             defaultColDef: {
                 sortable: true,
                 resizable: true,
@@ -127,7 +142,7 @@
             },
             datasource: {
                 getRows: function (params) {
-                    loadRows(params, config, status, retry);
+                    loadRows(params, config, status, retry, gridRegion);
                 }
             }
         };
@@ -139,7 +154,7 @@
         }
     }
 
-    function loadRows(params, config, status, retry) {
+    function loadRows(params, config, status, retry, gridRegion) {
         var url = new URL(config.dataUrl, window.location.origin);
         var quick = document.getElementById(QUICK_ID);
         url.searchParams.set("startRow", params.startRow);
@@ -150,6 +165,7 @@
             url.searchParams.set("quick", quick.value);
         }
         setRetryVisible(retry, false);
+        setGridBusy(gridRegion, true);
         showStatus(status, "Loading entries…", false);
         fetch(url.toString(), {
             headers: { Accept: "application/json" },
@@ -162,11 +178,15 @@
             })
             .then(function (result) {
                 if (!result.ok || result.data.error) {
+                    setGridBusy(gridRegion, false);
                     showStatus(status, "Could not load entries. Try again.", true);
                     setRetryVisible(retry, true);
-                    params.failCallback();
+                    if (typeof params.failCallback === "function") {
+                        params.failCallback();
+                    }
                     return;
                 }
+                setGridBusy(gridRegion, false);
                 showStatus(
                     status,
                     result.data.total === 0
@@ -175,16 +195,32 @@
                     false
                 );
                 setRetryVisible(retry, false);
+                if (params.api) {
+                    if (result.data.total === 0 && params.api.showNoRowsOverlay) {
+                        params.api.showNoRowsOverlay();
+                    } else if (params.api.hideOverlay) {
+                        params.api.hideOverlay();
+                    }
+                }
                 // Infinite row model API of agGrid 32: successCallback(rows,
                 // lastRow).  The *server side* row model's success/fail
                 // callbacks do not exist here and throw at runtime.
                 params.successCallback(result.data.rows, result.data.lastRow);
             })
             .catch(function () {
+                setGridBusy(gridRegion, false);
                 showStatus(status, "Could not load entries. Try again.", true);
                 setRetryVisible(retry, true);
-                params.failCallback();
+                if (typeof params.failCallback === "function") {
+                    params.failCallback();
+                }
             });
+    }
+
+    function setGridBusy(gridRegion, busy) {
+        if (gridRegion) {
+            gridRegion.setAttribute("aria-busy", busy ? "true" : "false");
+        }
     }
 
     function showStatus(status, text, isError) {
@@ -192,6 +228,8 @@
             return;
         }
         status.textContent = text;
+        status.setAttribute("role", isError ? "alert" : "status");
+        status.setAttribute("aria-live", isError ? "assertive" : "polite");
         status.classList.toggle("text-danger", !!isError);
         status.classList.toggle("text-body-secondary", !isError);
     }
@@ -212,11 +250,19 @@
         }
         var status = document.getElementById(STATUS_ID);
         var retry = document.getElementById("persistent-log-retry");
-        var gridApi = agGrid.createGrid(element, gridOptions(config, status, retry));
+        var gridRegion = document.getElementById(GRID_REGION_ID) || element;
+        setGridBusy(gridRegion, true);
+        var gridApi = agGrid.createGrid(
+            element,
+            gridOptions(config, status, retry, gridRegion)
+        );
 
         if (retry) {
             retry.addEventListener("click", function () {
                 setRetryVisible(retry, false);
+                if (gridRegion && typeof gridRegion.focus === "function") {
+                    gridRegion.focus({ preventScroll: true });
+                }
                 gridApi.purgeInfiniteCache();
             });
         }

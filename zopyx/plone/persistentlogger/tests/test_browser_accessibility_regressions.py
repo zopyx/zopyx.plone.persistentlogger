@@ -247,6 +247,25 @@ class BrowserAccessibilityRegressionTests(unittest.TestCase):
             "the log grid must expose a role and accessible name",
         )
 
+    def test_logger_exposes_initial_loading_and_retry_contract(self):
+        markup = (PACKAGE_ROOT / "browser" / "logger.pt").read_text()
+        self.assertIn("Loading entries…", markup)
+        self.assertIn('aria-describedby="persistent-log-status"', markup)
+        self.assertIn('aria-busy="true"', markup)
+        self.assertIn('aria-controls="persistent-log-grid"', markup)
+        self.assertNotIn('style="height: 70vh; width: 100%"', markup)
+
+    def test_retention_states_and_controls_are_named_for_assistive_technology(self):
+        markup = (PACKAGE_ROOT / "browser" / "retention.pt").read_text()
+        self.assertIn('id="retention-policy-title"', markup)
+        self.assertIn('aria-labelledby="retention-policy-title"', markup)
+        self.assertIn('id="retention-preview-title"', markup)
+        self.assertIn('aria-labelledby="retention-preview-title"', markup)
+        self.assertIn('role="alert"', markup)
+        self.assertIn('aria-live="assertive"', markup)
+        self.assertIn("No entries match this retention policy.", markup)
+        self.assertIn('aria-describedby="retention-reason-help"', markup)
+
 
 def test_suite():
     """Register every regression class with the canonical Zope runner."""
