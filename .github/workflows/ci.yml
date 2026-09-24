@@ -42,13 +42,33 @@ jobs:
         run: make test
 
       - name: Check Ruff lint
-        run: uv run ruff check zopyx
+        run: uv run ruff check .
 
       - name: Check Ruff formatting
-        run: uv run ruff format --check zopyx
+        run: uv run ruff format --check .
 
       - name: Run type checker
         run: uv run ty check zopyx
+
+  frontend-lint:
+    name: JavaScript lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Biome
+        uses: biomejs/setup-biome@v2
+        with:
+          version: 2.5.14
+
+      - name: Check JavaScript with Biome
+        run: >-
+          biome lint --error-on-warnings
+          zopyx/plone/persistentlogger/browser/resources/persistent-log.js
+
+      - name: Check JavaScript syntax
+        run: node --check zopyx/plone/persistentlogger/browser/resources/persistent-log.js
 
   dependency-audit:
     name: Dependency audit
@@ -78,7 +98,7 @@ jobs:
   build:
     name: Build distributions
     runs-on: ubuntu-latest
-    needs: [quality, dependency-audit]
+    needs: [quality, frontend-lint, dependency-audit]
     steps:
       - name: Check out source
         uses: actions/checkout@v4
