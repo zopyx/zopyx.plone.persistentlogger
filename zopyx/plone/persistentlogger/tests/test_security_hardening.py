@@ -11,7 +11,8 @@ from unittest.mock import MagicMock, patch
 
 from ..browser.integrity import IntegrityHealthView
 from ..browser.logger import Logging
-from ..browser.retention import Export, Retention
+from ..browser.retention import Export, Retention, RetentionGUI
+from ..models import RetentionPolicy
 
 ROOT = Path(__file__).parents[1]
 
@@ -66,13 +67,124 @@ class BrowserHardeningTests(unittest.TestCase):
         self.assertEqual(request.response.status, 400)
         self.assertEqual(payload["error"]["code"], "invalid_number")
 
+    def test_retention_preview_maps_disabled_policy_to_structured_bad_request(self):
+        request = Request(method="POST")
+        repository = MagicMock()
+        repository.policy.return_value = RetentionPolicy()
+        with (
+            patch("zopyx.plone.persistentlogger.browser.retention.CheckAuthenticator"),
+            patch(
+                "zopyx.plone.persistentlogger.browser.retention.get_repository",
+                return_value=repository,
+            ),
+        ):
+            payload = json.loads(Retention(self.context, request).preview())
+        self.assertEqual(request.response.status, 400)
+        self.assertEqual(payload["error"]["code"], "invalid_policy")
+        self.assertEqual(payload["error"]["message"], "retention policy is disabled")
+
+    def test_export_limit_is_checked_before_materializing_rows(self):
+        request = Request({"format": "json"})
+        repository = MagicMock()
+        rows = MagicMock()
+        rows.__iter__.side_effect = AssertionError("rows were materialized")
+        repository.search.return_value = SimpleNamespace(rows=rows, total=2)
+        with (
+            patch(
+                "zopyx.plone.persistentlogger.browser.retention.get_repository",
+                return_value=repository,
+            ),
+            patch(
+                "zopyx.plone.persistentlogger.browser.retention.MAX_EXPORT_ENTRIES",
+                1,
+            ),
+        ):
+            payload = json.loads(Export(self.context, request)())
+        self.assertEqual(request.response.status, 413)
+        self.assertEqual(payload["error"]["code"], "export_limit")
+        repository.search.assert_called_once_with(limit=2)
+        rows.__iter__.assert_not_called()
+
+    def test_export_byte_limit_is_a_payload_too_large_response(self):
+        request = Request({"format": "json"})
+        repository = MagicMock()
+        repository.search.return_value = SimpleNamespace(rows=({},), total=1)
+        with (
+            patch(
+                "zopyx.plone.persistentlogger.browser.retention.get_repository",
+                return_value=repository,
+            ),
+            patch(
+                "zopyx.plone.persistentlogger.browser.retention.MAX_EXPORT_BYTES",
+                1,
+            ),
+        ):
+            payload = json.loads(Export(self.context, request)())
+        self.assertEqual(request.response.status, 413)
+        self.assertEqual(payload["error"]["code"], "export_limit")
+
+    def test_repeated_gui_values_are_normalized_or_rejected(self):
+        repository = MagicMock()
+        repository.policy.return_value = RetentionPolicy()
+        with (
+            patch.object(RetentionGUI, "template", MagicMock(return_value="rendered")),
+            patch("zopyx.plone.persistentlogger.browser.retention.CheckAuthenticator"),
+            patch(
+                "zopyx.plone.persistentlogger.browser.retention.get_repository",
+                return_value=repository,
+            ),
+            patch(
+                "zopyx.plone.persistentlogger.browser.retention.plone.api.user.get_current",
+                return_value=SimpleNamespace(getUserName=lambda: "manager"),
+            ),
+        ):
+            request = Request(
+                {
+                    "action": "save-policy",
+                    "enabled": ["1"],
+                    "older_than_days": ["30"],
+                    "max_entries": ["2"],
+                },
+                method="POST",
+            )
+            view = RetentionGUI(self.context, request)
+            self.assertEqual(view(), "rendered")
+            self.assertEqual(view.messages, [("info", "Retention policy saved.")])
+
+            request = Request(
+                {
+                    "action": "save-policy",
+                    "older_than_days": ["30", "31"],
+                    "max_entries": ["2"],
+                },
+                method="POST",
+            )
+            view = RetentionGUI(self.context, request)
+            self.assertEqual(view(), "rendered")
+        self.assertEqual(request.response.status, 400)
+        self.assertEqual(
+            view.messages, [("error", "older_than_days must be provided once")]
+        )
+
+        request = Request(
+            {"action": ["save-policy", "preview"], "older_than_days": ["30"]},
+            method="POST",
+        )
+        with (
+            patch.object(RetentionGUI, "template", MagicMock(return_value="rendered")),
+            patch("zopyx.plone.persistentlogger.browser.retention.CheckAuthenticator"),
+        ):
+            view = RetentionGUI(self.context, request)
+            self.assertEqual(view(), "rendered")
+        self.assertEqual(request.response.status, 400)
+        self.assertEqual(view.messages, [("error", "action must be provided once")])
+
     def test_retention_delete_rejects_malformed_uuid(self):
         request = Request({"operation_id": "not-a-uuid"}, method="POST")
         with patch("zopyx.plone.persistentlogger.browser.retention.CheckAuthenticator"):
             payload = json.loads(Retention(self.context, request).delete())
         self.assertEqual(request.response.status, 400)
         self.assertEqual(payload["error"]["code"], "invalid_uuid")
-
     def test_export_rejects_unknown_format_as_structured_bad_request(self):
         request = Request({"format": "xml"})
         payload = Export(self.context, request)()

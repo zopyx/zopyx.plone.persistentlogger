@@ -15,6 +15,7 @@ import json
 import unittest
 from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
 from zipfile import ZipFile
@@ -310,6 +311,33 @@ class GovernanceTests(unittest.TestCase):
         self.assertEqual(row["comment"], "'=formula")
         self.assertIn('"source":"test"', row["details"])
 
+    def test_public_export_api_limits_before_loading_all_events(self):
+        repository = MagicMock()
+        repository.search.return_value = SimpleNamespace(rows=(), total=2)
+        export_request = SimpleNamespace(
+            format="json", max_entries=1, max_bytes=1_000_000_000
+        )
+        with (
+            patch(
+                "zopyx.plone.persistentlogger.api.ExportRequest",
+                return_value=export_request,
+            ),
+            patch(
+                "zopyx.plone.persistentlogger.api.get_repository",
+                return_value=repository,
+            ),
+        ):
+            with self.assertRaisesRegex(ValueError, "entry limit"):
+                export_log(self.context, "json")
+        repository.search.assert_called_once_with(limit=2)
+        repository.events.assert_not_called()
+
+    def test_public_export_api_does_not_accept_limit_overrides(self):
+        parameters = inspect.signature(export_log).parameters
+        self.assertNotIn("kwargs", parameters)
+        self.assertNotIn("max_entries", parameters)
+        self.assertNotIn("max_bytes", parameters)
+
     def test_browser_preview_respects_disabled_policy(self):
         request = type(
             "Request",
@@ -317,8 +345,9 @@ class GovernanceTests(unittest.TestCase):
             {"form": {}, "method": "POST", "response": MagicMock()},
         )()
         with patch("zopyx.plone.persistentlogger.browser.retention.CheckAuthenticator"):
-            with self.assertRaises(ValueError):
-                BrowserRetention(self.context, request).preview()
+            payload = json.loads(BrowserRetention(self.context, request).preview())
+        request.response.setStatus.assert_called_with(400)
+        self.assertEqual(payload["error"]["code"], "invalid_policy")
 
         response = MagicMock()
         get_request = type("Request", (), {"method": "GET", "response": response})()

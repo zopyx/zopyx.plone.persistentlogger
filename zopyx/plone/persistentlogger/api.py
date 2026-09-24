@@ -13,7 +13,13 @@ from typing import Any
 import plone.api
 
 from .exports import export_events
-from .models import DeletionPreview, DeletionResult, LogEvent, RetentionPolicy
+from .models import (
+    DeletionPreview,
+    DeletionResult,
+    ExportRequest,
+    LogEvent,
+    RetentionPolicy,
+)
 from .retention import RetentionService
 from .storage import get_repository
 
@@ -45,6 +51,16 @@ def execute_retention(
     return RetentionService(context).execute(preview, reason, actor)
 
 
-def export_log(context: Any, format: str, **kwargs: Any) -> bytes:
-    """Export one object's log in a supported format."""
-    return export_events(get_repository(context).events(), format, **kwargs)
+def export_log(context: Any, format: str) -> bytes:
+    """Export one object's bounded log in a supported format."""
+    request = ExportRequest(format)
+    repository = get_repository(context)
+    result = repository.search(limit=request.max_entries + 1)
+    if result.total > request.max_entries:
+        raise ValueError("export exceeds the configured entry limit")
+    return export_events(
+        list(result.rows),
+        request.format,
+        max_entries=request.max_entries,
+        max_bytes=request.max_bytes,
+    )

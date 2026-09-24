@@ -150,7 +150,9 @@ class Logging(BrowserView):
             request.response.setHeader("Content-Type", "application/json")
             return json.dumps({"error": str(exc)})
 
-        limit = None if end_row < 0 else min(max(end_row - offset, 0), MAX_PAGE_SIZE)
+        # A missing/negative endRow is not permission to materialize the log.
+        # Return the total while keeping the page itself bounded.
+        limit = 0 if end_row < 0 else min(max(end_row - offset, 0), MAX_PAGE_SIZE)
         result = get_repository(self.context).search(
             conditions=conditions,
             sort=sort,

@@ -13,12 +13,21 @@ from Products.Five.browser import BrowserView
 from Products.Five.browser.pagetemplatefile import ViewPageTemplateFile
 
 from ..exports import export_events
+from ..exports.base import MAX_BYTES as MAX_EXPORT_BYTES
+from ..exports.base import MAX_ENTRIES as MAX_EXPORT_ENTRIES
 from ..models import DeletionPreview, ExportRequest, RetentionPolicy
 from ..retention import RetentionService
 from ..serialization import json_default
 from ..storage import LogRepository, get_repository
 
-MAX_EXPORT_ENTRIES = 100_000
+
+def _single_value(value: object, field: str) -> object:
+    """Normalize one form field and reject ambiguous repeated values."""
+    if isinstance(value, (list, tuple)):
+        if len(value) != 1:
+            raise ValueError(f"{field} must be provided once")
+        return value[0]
+    return value
 
 
 def _request_value(request, name: str, default: object = None) -> object:
@@ -29,7 +38,12 @@ def _request_value(request, name: str, default: object = None) -> object:
         getter = getattr(request, "get", None)
         if getter is not None:
             value = getter(name, default)
-    return value
+    return _single_value(value, name)
+
+
+def _form_value(form, name: str, default: object = None) -> object:
+    """Read and normalize one value from a browser form."""
+    return _single_value(form.get(name, default), name)
 
 
 def _error_response(request, status: int, code: str, message: str) -> str:
@@ -90,10 +104,10 @@ class Retention(BrowserView):
                     configured.max_entries if parsed_max is None else parsed_max
                 ),
             )
+            preview = RetentionService(self.context, repository).preview(policy)
         except ValueError as exc:
             code = "invalid_number" if "integer" in str(exc) else "invalid_policy"
             return _error_response(self.request, 400, code, str(exc))
-        preview = RetentionService(self.context, repository).preview(policy)
         return json.dumps(asdict(preview), default=json_default, ensure_ascii=False)
 
     def delete(self) -> str:
@@ -102,7 +116,7 @@ class Retention(BrowserView):
             return "POST required"
         CheckAuthenticator(self.request)
         try:
-            operation_id = UUID(str(_request_value(self.request, "operation_id", "")))
+            operation_id = UUID(str(_form_value(self.request.form, "operation_id", "")))
         except (TypeError, ValueError, AttributeError):
             return _error_response(
                 self.request, 400, "invalid_uuid", "operation_id must be a valid UUID"
@@ -126,14 +140,18 @@ class Export(BrowserView):
     """Return one object log in a selected supported format."""
 
     def __call__(self) -> bytes | str:
-        format_name = str(_request_value(self.request, "format", "json"))
         try:
-            ExportRequest(format_name)
-        except ValueError as exc:
+            format_name = str(_request_value(self.request, "format", "json"))
+            export_request = ExportRequest(
+                format_name,
+                max_entries=MAX_EXPORT_ENTRIES,
+                max_bytes=MAX_EXPORT_BYTES,
+            )
+        except (TypeError, ValueError) as exc:
             return _error_response(self.request, 400, "invalid_export", str(exc))
         repository = get_repository(self.context)
-        result = repository.search(limit=MAX_EXPORT_ENTRIES + 1)
-        if result.total > MAX_EXPORT_ENTRIES:
+        result = repository.search(limit=export_request.max_entries + 1)
+        if result.total > export_request.max_entries:
             return _error_response(
                 self.request,
                 413,
@@ -141,8 +159,15 @@ class Export(BrowserView):
                 "export exceeds the configured entry limit",
             )
         try:
-            data = export_events(list(result.rows), format_name)
+            data = export_events(
+                list(result.rows),
+                export_request.format,
+                max_entries=export_request.max_entries,
+                max_bytes=export_request.max_bytes,
+            )
         except ValueError as exc:
+            if str(exc).startswith("export exceeds"):
+                return _error_response(self.request, 413, "export_limit", str(exc))
             return _error_response(self.request, 400, "invalid_export", str(exc))
         content_types = {
             "json": "application/json",
@@ -177,10 +202,7 @@ class RetentionGUI(BrowserView):
 
     @property
     def preview(self) -> DeletionPreview | None:
-        try:
-            operation_id = _request_value(self.request, "operation_id")
-        except ValueError:
-            return None
+        operation_id = _form_value(self.request.form, "operation_id")
         if not operation_id:
             return None
         try:
@@ -209,14 +231,11 @@ class RetentionGUI(BrowserView):
         return RetentionPolicy(
             enabled=current.enabled,
             older_than_days=_integer(
-                _request_value(
-                    self.request, "older_than_days", current.older_than_days
-                ),
+                _form_value(form, "older_than_days", current.older_than_days),
                 "older_than_days",
             ),
             max_entries=_integer(
-                _request_value(self.request, "max_entries", current.max_entries),
-                "max_entries",
+                _form_value(form, "max_entries", current.max_entries), "max_entries"
             ),
         )
 
@@ -224,31 +243,31 @@ class RetentionGUI(BrowserView):
         form = self.request.form
         if self.request.method == "POST":
             CheckAuthenticator(self.request)
-            action = form.get("action")
             try:
+                action = _form_value(form, "action")
                 if action == "save-policy":
                     self._save_policy(form)
                 elif action == "preview":
                     self._make_preview(form)
                 elif action == "delete":
                     self._delete(form)
-            except ValueError as exc:
+            except (TypeError, ValueError) as exc:
+                response = getattr(self.request, "response", None)
+                if response is not None:
+                    response.setStatus(400)
                 self.messages.append(("error", str(exc)))
         return self.template()
 
     def _save_policy(self, form) -> None:
         current = self.policy
         policy = RetentionPolicy(
-            enabled=str(_request_value(self.request, "enabled", "")) == "1",
+            enabled=str(_form_value(form, "enabled", "")) == "1",
             older_than_days=_integer(
-                _request_value(
-                    self.request, "older_than_days", current.older_than_days
-                ),
+                _form_value(form, "older_than_days", current.older_than_days),
                 "older_than_days",
             ),
             max_entries=_integer(
-                _request_value(self.request, "max_entries", current.max_entries),
-                "max_entries",
+                _form_value(form, "max_entries", current.max_entries), "max_entries"
             ),
         )
         actor = plone.api.user.get_current().getUserName()
@@ -272,7 +291,7 @@ class RetentionGUI(BrowserView):
             raise ValueError("deletion preview is missing or stale")
         actor = plone.api.user.get_current().getUserName()
         result = RetentionService(self.context, self.repository).execute(
-            preview, str(form.get("reason", "")), actor
+            preview, str(_form_value(form, "reason", "")), actor
         )
         form["operation_id"] = ""
         self.messages.append(

@@ -120,7 +120,11 @@ class EntriesViewTests(unittest.TestCase):
         )
         self.assertEqual(page["startRow"], 2)
         everything, _ = self.call({"startRow": "0", "endRow": "-1"})
-        self.assertEqual(len(everything["rows"]), 5)
+        self.assertEqual(everything["rows"], [])
+        self.assertEqual(everything["total"], 5)
+        without_end_row, _ = self.call({"startRow": "0"})
+        self.assertEqual(without_end_row["rows"], [])
+        self.assertEqual(without_end_row["total"], 5)
 
     def test_page_size_is_capped(self):
         for index in range(3):

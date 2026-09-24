@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..models import ExportRequest
 from ..serialization import export_rows
 
 MAX_ENTRIES = 100_000
@@ -23,25 +24,30 @@ def export_events(
     max_entries: int = MAX_ENTRIES,
     max_bytes: int = MAX_BYTES,
 ) -> bytes:
-    if len(events) > max_entries:
+    request = ExportRequest(
+        format=format,
+        max_entries=max_entries,
+        max_bytes=max_bytes,
+    )
+    if len(events) > request.max_entries:
         raise ValueError("export exceeds the configured entry limit")
     rows = export_rows(events)
-    if format == "json":
+    if request.format == "json":
         from .json import render_json
 
         data = render_json(rows)
-    elif format == "csv":
+    elif request.format == "csv":
         from .csv import render_csv
 
         data = render_csv(rows)
-    elif format == "xlsx":
+    elif request.format == "xlsx":
         from .xlsx import render_xlsx
 
         data = render_xlsx(rows)
-    elif format == "ods":
+    elif request.format == "ods":
         from .ods import render_ods
 
         data = render_ods(rows)
     else:
-        raise ValueError(f"unsupported export format: {format}")
-    return _check_size(data, max_bytes)
+        raise ValueError(f"unsupported export format: {request.format}")
+    return _check_size(data, request.max_bytes)
