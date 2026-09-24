@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Any
 
 from .models import DeletionPreview, DeletionResult, RetentionPolicy, utc_now
-from .storage import BaseLogStorage, get_repository
+from .storage import LogRepository, get_repository
 
 
 class RetentionExecutionError(RuntimeError):
@@ -26,7 +26,7 @@ class RetentionExecutionError(RuntimeError):
 class RetentionService:
     """Apply a retention policy to one Plone object."""
 
-    def __init__(self, context: Any, repository: BaseLogStorage | None = None):
+    def __init__(self, context: Any, repository: LogRepository | None = None):
         self.repository = repository or get_repository(context)
 
     def preview(

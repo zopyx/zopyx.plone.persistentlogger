@@ -16,7 +16,7 @@ from ..exports import export_events
 from ..models import DeletionPreview, ExportRequest, RetentionPolicy
 from ..retention import RetentionService
 from ..serialization import json_default
-from ..storage import BaseLogStorage, get_repository
+from ..storage import LogRepository, get_repository
 
 MAX_EXPORT_ENTRIES = 100_000
 
@@ -159,7 +159,7 @@ class RetentionGUI(BrowserView):
         self.messages: list[tuple[str, str]] = []
 
     @property
-    def repository(self) -> BaseLogStorage:
+    def repository(self) -> LogRepository:
         return get_repository(self.context)
 
     @property

@@ -19,7 +19,8 @@ from zope.component.hooks import getSite
 
 from ..interfaces import IStorageSettings
 from ..site_identity import stable_site_key
-from .base import BaseLogStorage, StorageConfigurationError
+from .base import StorageConfigurationError
+from .contracts import LogRepository
 from .zodb import AnnotationRepository
 
 __all__ = [
@@ -185,7 +186,7 @@ def storage_health(settings: Any = None, check: bool = False) -> dict[str, Any]:
         }
 
 
-def build_rdbms_repository(context: Any, database_url: str) -> BaseLogStorage:
+def build_rdbms_repository(context: Any, database_url: str) -> LogRepository:
     try:
         from .rdbms import SQLRepository
     except ImportError as exc:  # pragma: no cover - depends on the environment
@@ -202,7 +203,7 @@ def get_repository(
     backend: str | None = None,
     database_url: str | None = None,
     settings: Any = None,
-) -> BaseLogStorage:
+) -> LogRepository:
     """Return the repository configured for ``context``.
 
     ``backend`` and ``database_url`` override the site configuration and

@@ -7,5 +7,6 @@ Contents:
    :maxdepth: 2
 
    README.rst
+   ARCHITECTURE.rst
    MODERNIZATION_PLAN.rst
    HISTORY.rst

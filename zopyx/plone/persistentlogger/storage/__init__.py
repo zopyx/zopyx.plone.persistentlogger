@@ -29,6 +29,7 @@ from .base import (
     verify_event_chain,
     verify_governance_chain,
 )
+from .contracts import LogRepository
 from .factory import (
     BACKEND_RDBMS,
     BACKEND_ZODB,
@@ -77,6 +78,7 @@ __all__ = [
     "PREVIEW_KEY",
     "AnnotationRepository",
     "BaseLogStorage",
+    "LogRepository",
     "COLUMNS",
     "Column",
     "Condition",
