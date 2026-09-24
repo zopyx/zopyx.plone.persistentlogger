@@ -282,9 +282,9 @@ class BaseLogStorage(ABC):
     def _delete_events(self, event_ids: tuple[UUID, ...]) -> tuple[int, int]:
         """Delete records and return ``(deleted, missing)``."""
 
-    @abstractmethod
     def _remove_all_events(self) -> None:
-        """Remove every event record of this object."""
+        """Remove every event record for internal backend cleanup only."""
+        raise NotImplementedError
 
     @abstractmethod
     def _load_journal(self) -> list[dict[str, Any]]:

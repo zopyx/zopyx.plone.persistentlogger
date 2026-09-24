@@ -6,7 +6,7 @@ from Products.Five.browser import BrowserView
 
 from ..integrity import verify_repository
 from ..serialization import canonical_json
-from ..storage import get_repository, storage_error_message, storage_health
+from ..storage import get_repository
 
 
 class IntegrityHealthView(BrowserView):
@@ -22,17 +22,16 @@ class IntegrityHealthView(BrowserView):
             )
         try:
             report = verify_repository(get_repository(self.context))
-        except Exception as exc:
-            self.request.response.setStatus(503)
+        except Exception:
+            self.request.response.setStatus(500)
             self.request.response.setHeader("Content-Type", "application/json")
             self.request.response.setHeader("Cache-Control", "no-store")
             return canonical_json(
                 {
-                    "status": "unhealthy",
-                    "ok": False,
-                    "code": "storage_unavailable",
-                    "storage": storage_health(check=True),
-                    "error": storage_error_message(exc),
+                    "error": {
+                        "code": "internal_error",
+                        "message": "integrity check unavailable",
+                    }
                 }
             )
         self.request.response.setHeader("Content-Type", "application/json")
