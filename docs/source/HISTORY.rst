@@ -8,7 +8,8 @@ Changelog
   deletion and a management GUI (``@@persistent-log-retention``).
 - Added multi-format export (JSON, CSV, XLSX, ODS).
 - Added an object-scoped governance journal with chained SHA-256 integrity
-  digests; this is not a separate site-root or externally immutable journal.
+  digests. The journal is not a separate site-level or externally immutable
+  archive.
 - Added site-wide audit logging of content creation and metadata edits,
   configurable per site and per content type (``@@audit-logging-settings``).
   Metadata changes are stored as a per-field diff in the entry details.

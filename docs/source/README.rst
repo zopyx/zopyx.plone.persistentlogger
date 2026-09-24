@@ -9,11 +9,11 @@ external relational database, selected per site in a dedicated control panel.
 
 .. note::
 
-   The package is being modernized for Plone 6.2+ and Python 3.14. Retention,
-   governed deletion, and multi-format export are part of the modernization
-   roadmap. The currently released legacy views are described below; they
-   should not yet be treated as a complete compliance or tamper-proof audit
-   system.
+   The package targets Plone 6.2+ and Python 3.14. It provides governed,
+   object-scoped retention and multi-format export, but it is not a complete
+   compliance, tamper-proof, or externally immutable audit system. See
+   `Security and immutability boundaries`_ before relying on the integrity
+   metadata operationally.
 
 Features
 --------
@@ -44,8 +44,8 @@ Modernization status:
 * type checking with Astral ``ty`` and formatting/linting with ``ruff``;
 * branch coverage enforced at 99% or higher;
 * object-scoped retention policies and explicitly confirmed deletion;
-* a persistent governance journal scoped to the logged object (there is no
-  separate site-root journal in the current implementation);
+* an object-scoped governance journal (there is no separate site-level journal
+  in the current implementation);
 * hash-chain integrity metadata for log and governance events;
 * site-wide audit logging of content creation and metadata edits
   (control panel, per content type, metadata diff); and
@@ -234,15 +234,11 @@ The adapter currently provides::
     logger.get_last_date()
     len(logger)
 
-The legacy ``logger.clear()`` compatibility method is deliberately disabled
-and raises ``RuntimeError``. The storage repositories do not expose a public
-clear or wipe operation either. Use the manager-authorized retention service
-with a stored preview, a reason, and a governance record for deletion.
-
-``entries`` is ordered by the underlying annotation storage. Callers that need
-stable presentation ordering should sort by the event date or use the browser
-view. New code should keep details JSON-compatible and should not put secrets,
-passwords, tokens, cookies, or complete request payloads into a log entry.
+``entries`` is returned in deterministic repository order. New code should keep
+details JSON-compatible and should not put secrets, passwords, tokens, cookies,
+or complete request payloads into a log entry. The legacy
+``logger.clear()`` compatibility method is deliberately disabled and raises
+``RuntimeError``; deletion must use the manager-authorized retention workflow.
 
 Severity values
 ~~~~~~~~~~~~~~~
@@ -255,9 +251,11 @@ The modernization uses these severity values:
 * ``error``
 * ``critical``
 
-The legacy implementation historically accepted arbitrary strings. New code
-should use the defined values; compatibility validation will be tightened as
-the typed event model is introduced.
+``LogEvent`` accepts these values (plus the compatibility aliases ``warn``,
+``err``, ``fatal``, ``crit``, and ``information``, which it normalizes). New
+writes reject other severities. Legacy records are normalized conservatively
+by migration and should be reviewed if they contain values outside this
+vocabulary.
 
 Entries grid
 ------------
@@ -360,9 +358,13 @@ Die frühere GET-basierte ``@@persistent-log-clear``-Route wurde entfernt. Das
 Löschen erfolgt ausschließlich über Preview, Bestätigung, Begründung und die
 begrenzte Retention-Operation.
 
-The existing log view uses the dedicated ``View audit log`` permission. The
-new export and retention administration routes use ``Manage portal`` and are
-restricted to Plone Managers.
+The log view and its data endpoints use the dedicated ``View audit log``
+permission. The default profile grants that permission only to the Plone
+``Manager`` role. Export, retention, and both storage control-panel routes use
+``Manage portal`` (normally granted to Managers); the package does not define
+separate export, retention, legal-hold, or integrity-verification permissions.
+The demo route uses ``Modify portal content`` and is registered only on the
+demo browser layer.
 
 Audit logging
 ~~~~~~~~~~~~~
@@ -412,12 +414,13 @@ Backends
 ``rdbms``
     Records live in a relational database. The persistence layer is modelled
     with SQLModel -- SQLAlchemy models with Pydantic validation -- on top of
-    SQLAlchemy, so the tables are declared once as Python models and any
-    SQLAlchemy dialect works. The backend commits every audit record
-    immediately, so audit evidence survives an abort or a later deletion of
-    the content it describes. The ``details`` payload and the governance
-    payload must be JSON serializable. PostgreSQL is the supported production
-    target and the database the test suite exercises in a container.
+    SQLAlchemy. The backend commits its database transactions independently of
+    the surrounding ZODB transaction. Consequently, a database-backed record
+    can remain after a Plone transaction aborts. The ``details`` payload and
+    governance payload must be JSON serializable. PostgreSQL is the supported
+    production target and the database exercised by the integration suite in a
+    container; other SQLAlchemy dialects are not a supported deployment
+    matrix.
 
 Switching the backend does not migrate existing records. Both backends are
 queried and written independently; a site that switches from ``zodb`` to
@@ -439,11 +442,31 @@ or, into an existing environment::
 The group contains ``sqlmodel>=0.0.22`` (which pulls in SQLAlchemy) and
 ``psycopg[binary]>=3.2``. Selecting
 ``rdbms`` without the extra installed fails with an explanatory
-``StorageConfigurationError`` on the first log write, not with an obscure
-import error.
+``StorageConfigurationError`` when the backend is first constructed, not with
+an obscure import error.
 
-Configuration
-~~~~~~~~~~~~~
+PostgreSQL prerequisites
+~~~~~~~~~~~~~~~~~~~~~~~~
+
+For a supported RDBMS deployment, provide PostgreSQL and a database/schema
+that the configured application user can reach and write. The package does
+not create the PostgreSQL database, roles, grants, TLS policy, connection
+pool limits, or backup policy. Install the ``rdbms`` extra and use a
+``postgresql+psycopg://`` URL. The first repository use creates the package's
+tables with ``SQLModel.metadata.create_all()``; this is additive setup, not a
+general PostgreSQL migration system.
+
+The RDBMS integration tests use a disposable ``postgres:17-alpine``
+testcontainers instance. A working Docker-compatible container runtime and
+permission to pull/start that image are prerequisites for ``make test`` and
+``make test-rdbms``. ``make test`` sets
+``ZOPYX_PERSISTENTLOGGER_REQUIRE_POSTGRES=1`` and therefore fails rather than
+silently omitting those tests when the runtime is unavailable. Use
+``make test-no-postgres`` only when intentionally running without the
+PostgreSQL half of the suite; that result does not verify the RDBMS backend.
+
+RDBMS configuration
+~~~~~~~~~~~~~~~~~~~
 
 Site Setup → *Audit log storage* (``@@audit-storage-settings``, restricted to
 the ``Manage portal`` permission) selects the backend:
@@ -460,15 +483,19 @@ the ``Manage portal`` permission) selects the backend:
     container and CI deployments configurable without a site administrator.
 
 The control panel validates a configuration before saving it: an unsupported
-backend name, a missing database URL, a malformed URL, and an unreachable
-database are refused with a status message and leave the stored configuration
-untouched. The settings are cached per site for the duration of a request and
-invalidated whenever a registry record changes.
+backend name, a missing database URL, a malformed URL, and (for a URL entered
+in the form) an unreachable database are refused with a status message and
+leave the stored configuration untouched. The settings are cached per site
+and invalidated whenever a registry record changes. An environment fallback is
+resolved when a repository is constructed; it is not written into the
+registry.
 
-Because Plone stores the database URL in the configuration registry, the
-credentials of the audit database are part of the site's registry. Grant
-access to the registry accordingly, or leave the control panel field empty and
-supply the URL through ``ZOPYX_PERSISTENTLOGGER_DATABASE_URL``.
+Because Plone stores a non-empty database URL in the configuration registry,
+its credentials are part of the site's registry. Protect registry exports and
+backups accordingly. To keep the URL outside the registry, leave the field
+empty and supply ``ZOPYX_PERSISTENTLOGGER_DATABASE_URL`` in the process
+environment; the deployment must then protect that environment and verify the
+effective URL separately.
 
 Canonical record shape
 ~~~~~~~~~~~~~~~~~~~~~~
@@ -503,7 +530,8 @@ adapter) keeps working with either backend:
     Optional relative or absolute information link.
 
 ``details`` / ``details_raw``
-    Formatted and original detail values used by older callers.
+    Redacted, JSON-compatible detail payload; the legacy alias is retained for
+    older callers.
 
 ``schema_version``
     Version of the stored event schema.
@@ -521,17 +549,29 @@ operation may relink the surviving interval; it records the new first-survivor
 digest in the governance journal as the chain anchor. Normal appends never
 rewrite existing records.
 
-Governance records are scoped to the same object as the event repository. They
-carry ``event_id``, ``created_at``, ``actor``, ``action``, ``reason``, the caller
-supplied payload keys, ``previous_digest`` and ``integrity_digest``. The
-current implementation does not create a separate site-level governance
-object or a cross-object journal chain.
+Governance records carry ``event_id``, ``created_at``, ``actor``, ``action``,
+``reason``, the caller supplied payload keys, ``previous_digest`` and
+``integrity_digest``.
 
-The modernization introduces this versioned event schema on top of the legacy
-annotation records. Legacy data is migrated automatically on first object
-access and persisted transactionally. Migration preserves UUIDs and event
-timestamps and is idempotent. Arbitrary legacy Python objects are not blindly
-written to new exports.
+Migration and upgrade behavior
+------------------------------
+
+The GenericSetup profile is version 3. Installing the profile does not scan
+and rewrite existing annotations. An administrator must apply the registered
+upgrade from profile version 2 to 3. That step visits the site and objects
+returned by the unrestricted catalog search, so it is not a substitute for a
+separate inventory of inaccessible, uncatalogued, or otherwise unreachable
+objects. Re-run verification after the upgrade and investigate any object
+that could not be visited.
+
+Before an upgrade, take a tested backup of the relevant storage (see `Backup
+and restore boundaries`_). Record event counts and representative UUIDs, and
+keep the pre-upgrade backup until post-upgrade verification succeeds. The
+upgrade normalizes legacy aliases, preserves valid identifiers and timestamps,
+rebuilds the event chain, quarantines records that cannot be normalized when a
+quarantine mapping is available, and is designed to be idempotent. It does
+not provide an automatic rollback. Restore the pre-upgrade backup if rollback
+is required, and do not mix restored ZODB data with an unrelated RDBMS state.
 
 Annotation layout (ZODB backend)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -565,20 +605,22 @@ format: renaming them invalidates existing installations.
 Database layout (RDBMS backend)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-The relational backend uses four SQLModel tables with the
-``persistentlogger_`` prefix. The schema is created on first use
+The relational backend uses six SQLModel tables with the
+``persistentlogger_`` prefix: four data tables plus a per-object chain-head
+table and a schema-version marker. The schema is created on first use
 (``SQLModel.metadata.create_all()``), which keeps deployment to setting the
-database URL. The tables hold records of all
-objects of all sites sharing one database; ``object_uid`` scopes a record to
-the object that owns the log.
+database URL. The tables hold records of all objects and sites sharing one
+database; ``object_uid`` scopes a record to the object that owns the log.
 
 ``persistentlogger_events`` - the audit events:
 
 ==========================  ===================  ==============================
 Column                      Type                 Notes
 ==========================  ===================  ==============================
-``event_id``                ``varchar(36)``      primary key, UUID of the entry
-``object_uid``              ``varchar(1024)``    indexed; owning object
+``event_id``                ``varchar(36)``      composite primary key, UUID
+                                                   of the entry
+``object_uid``              ``varchar(1024)``    composite primary key; owning
+                                                   object
 ``created_at``              ``timestamptz``      indexed; UTC event timestamp
 ``actor``                   ``varchar(255)``     user name
 ``event_type``              ``varchar(100)``     ``create``, ``edit``, …
@@ -588,6 +630,7 @@ Column                      Type                 Notes
 ``info_url``                ``varchar(2048)``    nullable, optional link
 ``details``                 ``json``             nullable; structured payload
 ``schema_version``          ``integer``          version of the event schema
+``sequence``                ``integer``          nullable insertion sequence
 ``previous_digest``         ``varchar(64)``      chain link to the predecessor
 ``integrity_digest``        ``varchar(64)``      SHA-256 digest of the record
 ==========================  ===================  ==============================
@@ -597,8 +640,9 @@ Column                      Type                 Notes
 ==========================  ===================  ==============================
 Column                      Type                 Notes
 ==========================  ===================  ==============================
-``event_id``                ``varchar(36)``      primary key
-``object_uid``              ``varchar(1024)``    indexed; owning object
+``event_id``                ``varchar(36)``      composite primary key
+``object_uid``              ``varchar(1024)``    composite primary key; owning
+                                                 object
 ``created_at``              ``timestamptz``      UTC timestamp
 ``actor``                   ``varchar(255)``     user name
 ``action``                  ``varchar(100)``     ``retention_policy_changed``,
@@ -627,8 +671,9 @@ confirmed against the exact preview that was shown:
 ==========================  ===================  ==============================
 Column                      Type                 Notes
 ==========================  ===================  ==============================
-``operation_id``            ``varchar(36)``      primary key
-``object_uid``              ``varchar(1024)``    indexed; owning object
+``operation_id``            ``varchar(36)``      composite primary key
+``object_uid``              ``varchar(1024)``    composite primary key; owning
+                                                 object
 ``cutoff``                  ``timestamptz``      age cutoff of the preview
 ``event_ids``               ``json``             identifiers of the selected
                                                  records
@@ -636,25 +681,33 @@ Column                      Type                 Notes
                                                  its selection
 ==========================  ===================  ==============================
 
+``persistentlogger_chain_heads`` stores the current event and governance
+chain heads per ``object_uid``. ``persistentlogger_schema_version`` stores the
+``audit`` schema marker used by the additive startup check. They are internal
+coordination tables and must be included in PostgreSQL backups and restores.
+
 Operational notes
 ~~~~~~~~~~~~~~~~~
 
-* RDBMS event and governance appends use ``Session.add()``. A repeated event
-  identifier for the same object is rejected; event history is not upserted.
-  Retention policy rows and stored preview rows use ``Session.merge()`` and
-  therefore have explicit upsert semantics for their keys.
-* Deleting a content object does not delete its rows; relational audit records
-  are deliberately independent of the content storage. Retention is the
-  supported way to remove audit records.
+* Event and governance appends use ``Session.add()`` and reject a duplicate
+  identifier for the same object. Policy and preview rows use ``Session.merge``
+  for their explicitly keyed upsert behavior.
+* Relational audit records are independent of the surrounding content
+  transaction. Retention is the supported deletion workflow; database
+  lifecycle cleanup is otherwise an operator responsibility.
 * ``details`` and ``payload`` values must be JSON serializable. Values that
   are not are rejected at write time instead of being silently coerced.
 * Bring your own backup, retention and access control for the audit database;
   the package neither creates roles nor grants privileges.
-* Table creation happens on first use and never drops or alters existing
-  tables. Schema changes of a future release would require a migration step.
+* Table creation happens on first use. The backend records schema marker
+  version 2 and currently performs one additive compatibility change (adding
+  the nullable ``sequence`` column when it is absent); it does not drop data
+  or provide a general migration/rollback framework. Future incompatible
+  schema changes require a release-specific migration procedure. A database
+  marked with a newer schema version is rejected rather than downgraded.
 
-Retention and deletion roadmap
-------------------------------
+Retention and deletion
+-----------------------
 
 Version 1 governance defaults are:
 
@@ -664,22 +717,93 @@ Version 1 governance defaults are:
 * object-scoped;
 * at most 100 entries per operation;
 * oldest eligible entries deleted first;
-* all selected entries handled in one transaction; and
+* the ZODB repository can keep deletion and its journal in the surrounding
+  transaction; the RDBMS repository performs separate database transactions
+  for the deletion and the subsequent governance write; and
 * a reason of at least 10 characters required.
 
-The workflow is preview, confirmation, and deletion. The repository for the
-logged object records the request, actor, reason, selection, counts, and result
-in its object-scoped governance journal. The journal is not part of the
-object-local deletion selection, but it is not a separate site-level object or
-an externally immutable archive: deleting a ZODB content object also removes
-its annotations, while RDBMS rows remain as object-scoped records. The event
-and preview deletion is committed before the governance write; if journaling
-fails, the retention service raises ``RetentionExecutionError`` and reports an
-indeterminate governance state. Legal holds and automatic schedulers are not
-part of version 1.
+The workflow is preview, confirmation, and deletion. A governance record in
+the same object's repository records the request, actor, reason, selection,
+counts, result, and a survivor-chain digest. It is not a separate site-level
+journal. The preview is stored server-side and the normal preview constructor
+records a one-hour ``expires_at`` value. Expiry is enforced when validation is
+given the current time; the current browser service does not pass an explicit
+clock to that validation, so preview expiry must not be treated as a complete
+browser-side security boundary. A preview is consumed once and is bound to the
+object, selected UUIDs, and cutoff. The cutoff is strictly
+``created_at < now_utc - timedelta(days=older_than_days)``.
 
-Export roadmap
---------------
+The current service deletes first and then records governance evidence. If the
+journal write fails, it raises ``RetentionExecutionError`` with an
+indeterminate governance state; do not report the operation as fully
+evidenced without checking the repository. In the RDBMS backend the event
+deletion and governance write are separate database transactions. In ZODB,
+the repository has a combined helper for one surrounding transaction, but the
+browser service does not use that helper automatically.
+
+Legal holds are not implemented. There is no hold field, hold API, hold
+permission, or retention exclusion, so the retention workflow must not be
+used as if it enforces a legal hold. Operators must disable or otherwise
+withhold deletion through their own process when a hold applies. Automatic
+schedulers are also not part of this release.
+
+Integrity verification
+----------------------
+
+Each event and governance record contains a canonical SHA-256 digest and a
+link to the previous digest in that object's chain. The storage module exposes
+verification helpers, but the package does not provide a browser verification
+page, scheduled verifier, or external trust anchor. An operator or test can
+verify the current records programmatically::
+
+    from zopyx.plone.persistentlogger.storage import (
+        get_repository,
+        verify_event_chain,
+        verify_governance_chain,
+    )
+
+    repository = get_repository(context)
+    events_ok = verify_event_chain(
+        repository.events(), repository.event_chain_anchor()
+    )
+    governance_ok = verify_governance_chain(repository.journal())
+
+Treat a false result as an integrity incident. Run verification after
+migration, restore, retention deletion, and any database maintenance. A
+successful result means that the supplied records form a self-consistent
+chain and that their stored digests match; it does not prove that records were
+never changed. An administrator with write access to the backend can alter
+records and recompute both the records and their chain. Retention deliberately
+relinks surviving events, so verification covers the current surviving chain,
+not a cryptographic proof of deleted history.
+
+Backup and restore boundaries
+-----------------------------
+
+The package does not create backups, schedule them, encrypt them, test them,
+or provide a restore command. Back up the selected storage using the
+platform's supported procedure, and restore it with the application stopped
+or otherwise quiesced:
+
+* For ``zodb``, include the Plone ZODB filestorage containing the object's
+  annotations and the site's registry. A ZODB restore restores log records
+  with the corresponding database state; it does not restore an RDBMS.
+* For ``rdbms``, back up and restore the PostgreSQL database containing all
+  ``persistentlogger_*`` tables, including the schema marker and chain-head
+  rows. PostgreSQL roles, grants, TLS material, credentials, and the
+  ``ZOPYX_PERSISTENTLOGGER_DATABASE_URL`` environment are outside the package
+  and must be restored/configured separately.
+
+Because RDBMS transactions are independent of ZODB transactions, there is no
+package-provided cross-store point-in-time backup. Restoring only one store
+can produce a log state that does not correspond to the Plone content state.
+After restore, verify connection/configuration, event and governance counts,
+representative identifiers, and both hash chains before re-enabling writes.
+Backups and database access controls are also the operator's responsibility;
+the package does not make a backup immutable or compliant.
+
+Exports
+-------
 
 The normalized export fields are:
 
@@ -695,8 +819,9 @@ The planned formats are:
 * ODS: canonical JSON text and explicit OpenDocument cell types.
 
 Exports are limited to 100,000 entries or 1,000 MB. Exceeding either limit
-returns a clear error rather than silently splitting an export. Export actions
-will be recorded in the governance journal without storing sensitive payloads.
+returns a clear error rather than silently splitting an export. The current
+browser export view does not record export actions in the governance journal;
+do not treat an export as an independently journaled governance event.
 
 Development workflow
 --------------------
@@ -760,32 +885,24 @@ Before publishing, configure the matching Trusted Publisher on the target
 index with the exact repository, workflow filename, and environment name.
 Production publishing must require environment approval.
 
-Release readiness and security boundaries
-------------------------------------------
+Security and immutability boundaries
+-------------------------------------
 
-This repository revision is not a compliance or tamper-proof audit release.
-SHA-256 chain metadata detects changes when the complete stored chain is
-available, but it is not a digital signature, external anchor, WORM store, or
-access-control policy. Before production release, the outstanding chain,
-retention/governance transaction, migration, and operational-readiness gaps
-must be resolved and verified by the full quality and integration gates.
+The package provides access checks for its browser routes, POST and CSRF
+checks for retention mutations, bounded previews, redaction of configured
+sensitive-key patterns in JSON-like details, and SHA-256 chain metadata. The
+legacy clear method is disabled; it is not a deletion bypass. These controls
+do not make the package compliant, tamper-proof, or externally immutable.
 
-The current legacy browser implementation predates the governance workflow.
-Treat the following as modernization work and review before production use:
-
-* the public clear/wipe primitives are disabled; deletion must remain limited
-  to the governed retention workflow;
-* every mutation must be POST-only and CSRF-protected;
-* permissions must be separated by operation;
-* comments, details, and URLs must be safely escaped and validated;
-* sensitive values must be redacted before persistence or export;
-* audit evidence must survive deletion of the selected events; and
-* hash-chain integrity must not be described as digital signatures or WORM
-  storage unless those controls are separately deployed; and
-* a passing local no-PostgreSQL run is not evidence that the PostgreSQL
-  backend passed. Release verification must run the required PostgreSQL
-  integration suite and the documented build, lint, type, audit, and package
-  checks.
+In particular, the package does not provide digital signatures, a trusted
+timestamp, an external hash anchor, WORM/object-lock storage, a separate
+immutable journal, database roles/grants, or an independent audit of
+administrative database access. The hash and its predecessor are stored in the
+same backend as the records. Anyone who can write that backend can change
+records and recompute the chain. Deploy an independently controlled signer,
+append-only/WORM sink, and operational access policy if those guarantees are
+required; document and verify that external deployment separately. Never
+describe the package alone as tamper-proof, immutable, or legally compliant.
 
 License and project information
 -------------------------------

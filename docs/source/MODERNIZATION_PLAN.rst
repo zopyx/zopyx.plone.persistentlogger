@@ -31,12 +31,12 @@ The following decisions are binding for the first implementation scope:
   operation is removed;
 * all governance actions are restricted to the Plone ``Manager`` role, with
   no four-eyes approval requirement;
-* migration runs automatically on first object access and persists
-  transactionally;
+* legacy migration runs through the explicit GenericSetup ``2 -> 3`` upgrade;
+  ordinary reads are side-effect free;
 * legal holds are not part of version 1;
-* the current implementation stores the governance journal with each logged
-  object's records; a separate site-root journal and external immutability
-  remain open design decisions;
+* the current implementation stores governance records with each logged
+  object's repository; a separate site-root journal and external immutability
+  are not implemented;
 * the hash chain covers both normal log events and governance-journal events;
 * exports and retention/deletion are object-scoped, not site-wide;
 * severity is limited to ``debug``, ``info``, ``warning``, ``error``, and
