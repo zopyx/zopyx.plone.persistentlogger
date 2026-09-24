@@ -236,9 +236,8 @@ The adapter currently provides::
 
 ``entries`` is returned in deterministic repository order. New code should keep
 details JSON-compatible and should not put secrets, passwords, tokens, cookies,
-or complete request payloads into a log entry. The legacy
-``logger.clear()`` compatibility method is deliberately disabled and raises
-``RuntimeError``; deletion must use the manager-authorized retention workflow.
+or complete request payloads into a log entry. The legacy ``logger.clear()`` compatibility method is not exposed; deletion must
+use the manager-authorized retention workflow.
 
 Severity values
 ~~~~~~~~~~~~~~~

@@ -10,3 +10,4 @@ Contents:
    ARCHITECTURE.rst
    MODERNIZATION_PLAN.rst
    HISTORY.rst
+   GOVERNANCE_API.rst

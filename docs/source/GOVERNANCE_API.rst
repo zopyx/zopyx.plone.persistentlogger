@@ -22,8 +22,8 @@ Read API
 
 ``@@persistent-log-integrity``
     ``GET`` only and Manager-only through Plone's ``Manage portal`` permission.
-    Returns the local integrity health report.  See
-    :doc:`INTEGRITY_OPERATIONS`.
+    Returns the local integrity health report.  It reports local verification
+    state only; it does not provide external signatures or WORM guarantees.
 
 Hold API
 --------
