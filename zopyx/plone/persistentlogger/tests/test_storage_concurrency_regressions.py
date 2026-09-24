@@ -74,6 +74,11 @@ class StorageRegressionMixin:
             )
             for future in futures:
                 future.result(timeout=15)
+            calls = 2
+            self.assertEqual(
+                synchronized_last_digest(self.repository),
+                original_last_digest(self.repository),
+            )
 
         entries = self.repository.events()
         self.assertEqual(

@@ -94,6 +94,7 @@ class FileLoggerTests(unittest.TestCase):
 
         with patch("builtins.__import__", side_effect=blocked_import):
             logger = file_logger.new_logger()
+            self.assertIs(blocked_import("json"), original_import("json"))
         self.assertIsNotNone(logger)
         self.assertNotEqual(logger, file_logger.new_logger())
 

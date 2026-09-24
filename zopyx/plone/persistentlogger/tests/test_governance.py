@@ -505,6 +505,7 @@ class GovernanceTests(unittest.TestCase):
                 render_xlsx([])
             with self.assertRaisesRegex(RuntimeError, "ODS"):
                 render_ods([])
+            self.assertIs(blocked_import("json"), original_import("json"))
 
         event = self.event()
         with self.assertRaises(ValueError):
