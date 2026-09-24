@@ -80,6 +80,30 @@ class PostgresContainerHelperTests(unittest.TestCase):
             with self.assertRaises(unittest.SkipTest):
                 database_url()
 
+    def test_a_container_that_fails_to_start_is_stopped(self):
+        container = MagicMock()
+        container.start.side_effect = RuntimeError("start failed")
+        with (
+            patch.dict(os.environ, {postgres.REQUIRE_VARIABLE: ""}),
+            patch.object(postgres, "_postgres_container", return_value=container),
+        ):
+            with self.assertRaises(unittest.SkipTest):
+                database_url()
+        container.stop.assert_called_once_with()
+        self.assertIsNone(postgres._container)
+
+    def test_a_container_without_a_url_is_stopped(self):
+        container = MagicMock()
+        container.get_connection_url.side_effect = RuntimeError("url failed")
+        with (
+            patch.dict(os.environ, {postgres.REQUIRE_VARIABLE: ""}),
+            patch.object(postgres, "_postgres_container", return_value=container),
+        ):
+            with self.assertRaises(unittest.SkipTest):
+                database_url()
+        container.stop.assert_called_once_with()
+        self.assertIsNone(postgres._container)
+
     def test_the_shared_container_is_started_once(self):
         container = MagicMock()
         container.get_connection_url.return_value = "postgresql+psycopg://shared"
@@ -100,6 +124,20 @@ class PostgresContainerHelperTests(unittest.TestCase):
         ) as dispose:
             stop_container()
         dispose.assert_called_once_with()
+        container.stop.assert_called_once_with()
+        self.assertIsNone(postgres._container)
+        self.assertIsNone(postgres._url)
+
+    def test_stop_container_stops_after_engine_disposal_fails(self):
+        container = MagicMock()
+        postgres._container = container
+        postgres._url = "postgresql+psycopg://shared"
+        with patch(
+            "zopyx.plone.persistentlogger.storage.rdbms.dispose_engines",
+            side_effect=RuntimeError("dispose failed"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "dispose failed"):
+                stop_container()
         container.stop.assert_called_once_with()
         self.assertIsNone(postgres._container)
         self.assertIsNone(postgres._url)

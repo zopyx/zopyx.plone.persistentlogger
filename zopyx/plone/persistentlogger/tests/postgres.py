@@ -55,16 +55,28 @@ def database_url() -> str:
         return _url
     if _skip_reason is not None:
         raise _unavailable(_skip_reason)
+
+    container = None
     try:
-        _container = _postgres_container(IMAGE)
-        _container.start()
-        _url = str(_container.get_connection_url())
+        container = _postgres_container(IMAGE)
+        _container = container
+        container.start()
+        url = str(container.get_connection_url())
     except Exception as exc:  # noqa: BLE001 - any failure means "no container"
+        if container is not None:
+            try:
+                container.stop()
+            except Exception:  # noqa: BLE001 - preserve the original failure
+                pass
+        _container = None
+        _url = None
         _skip_reason = (
             "PostgreSQL test container is unavailable "
             f"(is a container runtime running?): {exc}"
         )
         raise _unavailable(_skip_reason) from exc
+
+    _url = url
     atexit.register(stop_container)
     return _url
 
@@ -85,8 +97,13 @@ def stop_container() -> None:
     global _container, _url
     from zopyx.plone.persistentlogger.storage.rdbms import dispose_engines
 
-    dispose_engines()
-    if _container is not None:
-        _container.stop()
-        _container = None
-    _url = None
+    container = _container
+    try:
+        dispose_engines()
+    finally:
+        try:
+            if container is not None:
+                container.stop()
+        finally:
+            _container = None
+            _url = None
