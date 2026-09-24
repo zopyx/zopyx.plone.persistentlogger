@@ -7,8 +7,8 @@ Changelog
 - Added object-scoped retention policies with confirmed, reason-based
   deletion and a management GUI (``@@persistent-log-retention``).
 - Added multi-format export (JSON, CSV, XLSX, ODS).
-- Added a permanent site-level governance journal with chained SHA-256
-  integrity digests.
+- Added an object-scoped governance journal with chained SHA-256 integrity
+  digests; this is not a separate site-root or externally immutable journal.
 - Added site-wide audit logging of content creation and metadata edits,
   configurable per site and per content type (``@@audit-logging-settings``).
   Metadata changes are stored as a per-field diff in the entry details.

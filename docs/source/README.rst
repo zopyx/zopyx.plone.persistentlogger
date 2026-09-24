@@ -26,7 +26,7 @@ Current functionality:
 * compute chained SHA-256 integrity digests;
 * find entries by UUID;
 * preview and execute object-scoped retention deletion;
-* record policy and deletion actions in a separate governance journal;
+* record policy and deletion actions in an object-scoped governance journal;
 * export logs as JSON, CSV, XLSX, or ODS;
 * expose a searchable and sortable browser table;
 * provide manager-protected browser views for export and retention operations;
@@ -44,7 +44,8 @@ Modernization status:
 * type checking with Astral ``ty`` and formatting/linting with ``ruff``;
 * branch coverage enforced at 99% or higher;
 * object-scoped retention policies and explicitly confirmed deletion;
-* a separate, permanent site-level governance journal;
+* a persistent governance journal scoped to the logged object (there is no
+  separate site-root journal in the current implementation);
 * hash-chain integrity metadata for log and governance events;
 * site-wide audit logging of content creation and metadata edits
   (control panel, per content type, metadata diff); and
@@ -232,6 +233,11 @@ The adapter currently provides::
     logger.get_last_user()
     logger.get_last_date()
     len(logger)
+
+The legacy ``logger.clear()`` compatibility method is deliberately disabled
+and raises ``RuntimeError``. The storage repositories do not expose a public
+clear or wipe operation either. Use the manager-authorized retention service
+with a stored preview, a reason, and a governance record for deletion.
 
 ``entries`` is ordered by the underlying annotation storage. Callers that need
 stable presentation ordering should sort by the event date or use the browser
@@ -515,9 +521,11 @@ operation may relink the surviving interval; it records the new first-survivor
 digest in the governance journal as the chain anchor. Normal appends never
 rewrite existing records.
 
-Governance records carry ``event_id``, ``created_at``, ``actor``, ``action``,
-``reason``, the caller supplied payload keys, ``previous_digest`` and
-``integrity_digest``.
+Governance records are scoped to the same object as the event repository. They
+carry ``event_id``, ``created_at``, ``actor``, ``action``, ``reason``, the caller
+supplied payload keys, ``previous_digest`` and ``integrity_digest``. The
+current implementation does not create a separate site-level governance
+object or a cross-object journal chain.
 
 The modernization introduces this versioned event schema on top of the legacy
 annotation records. Legacy data is migrated automatically on first object
@@ -584,7 +592,7 @@ Column                      Type                 Notes
 ``integrity_digest``        ``varchar(64)``      SHA-256 digest of the record
 ==========================  ===================  ==============================
 
-``persistentlogger_governance`` - the permanent governance journal:
+``persistentlogger_governance`` - the object-scoped governance journal:
 
 ==========================  ===================  ==============================
 Column                      Type                 Notes
@@ -631,8 +639,10 @@ Column                      Type                 Notes
 Operational notes
 ~~~~~~~~~~~~~~~~~
 
-* The RDBMS backend writes with ``Session.merge()`` per record, so a repeated
-  write of the same ``event_id`` updates the row instead of raising.
+* RDBMS event and governance appends use ``Session.add()``. A repeated event
+  identifier for the same object is rejected; event history is not upserted.
+  Retention policy rows and stored preview rows use ``Session.merge()`` and
+  therefore have explicit upsert semantics for their keys.
 * Deleting a content object does not delete its rows; relational audit records
   are deliberately independent of the content storage. Retention is the
   supported way to remove audit records.
@@ -657,10 +667,15 @@ Version 1 governance defaults are:
 * all selected entries handled in one transaction; and
 * a reason of at least 10 characters required.
 
-The workflow is preview, confirmation, and deletion. A separate site-level
-Plone governance object records the request, actor, reason, selection, counts,
-and result. That journal is retained permanently and is not part of the
-object-local deletion selection. Legal holds and automatic schedulers are not
+The workflow is preview, confirmation, and deletion. The repository for the
+logged object records the request, actor, reason, selection, counts, and result
+in its object-scoped governance journal. The journal is not part of the
+object-local deletion selection, but it is not a separate site-level object or
+an externally immutable archive: deleting a ZODB content object also removes
+its annotations, while RDBMS rows remain as object-scoped records. The event
+and preview deletion is committed before the governance write; if journaling
+fails, the retention service raises ``RetentionExecutionError`` and reports an
+indeterminate governance state. Legal holds and automatic schedulers are not
 part of version 1.
 
 Export roadmap
@@ -745,20 +760,32 @@ Before publishing, configure the matching Trusted Publisher on the target
 index with the exact repository, workflow filename, and environment name.
 Production publishing must require environment approval.
 
-Security and operational boundaries
-------------------------------------
+Release readiness and security boundaries
+------------------------------------------
+
+This repository revision is not a compliance or tamper-proof audit release.
+SHA-256 chain metadata detects changes when the complete stored chain is
+available, but it is not a digital signature, external anchor, WORM store, or
+access-control policy. Before production release, the outstanding chain,
+retention/governance transaction, migration, and operational-readiness gaps
+must be resolved and verified by the full quality and integration gates.
 
 The current legacy browser implementation predates the governance workflow.
 Treat the following as modernization work and review before production use:
 
-* destructive clear behavior must be removed or disabled;
+* the public clear/wipe primitives are disabled; deletion must remain limited
+  to the governed retention workflow;
 * every mutation must be POST-only and CSRF-protected;
 * permissions must be separated by operation;
 * comments, details, and URLs must be safely escaped and validated;
 * sensitive values must be redacted before persistence or export;
 * audit evidence must survive deletion of the selected events; and
 * hash-chain integrity must not be described as digital signatures or WORM
-  storage unless those controls are separately deployed.
+  storage unless those controls are separately deployed; and
+* a passing local no-PostgreSQL run is not evidence that the PostgreSQL
+  backend passed. Release verification must run the required PostgreSQL
+  integration suite and the documented build, lint, type, audit, and package
+  checks.
 
 License and project information
 -------------------------------

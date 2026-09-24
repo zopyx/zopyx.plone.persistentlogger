@@ -178,15 +178,11 @@ class RdbmsStorageRegressionTests(StorageRegressionMixin, TestCase):
         type(self).counter += 1
         self.context = RdbmsContext(f"storage-regression-{type(self).counter}")
         self.repository = SQLRepository(self.context, database_url=self.url)
-        self.repository.clear()
-        self.addCleanup(self.repository.clear)
 
     def make_other_repository(self):
         type(self).counter += 1
         context = RdbmsContext(f"storage-regression-{type(self).counter}")
         repository = SQLRepository(context, database_url=self.url)
-        repository.clear()
-        self.addCleanup(repository.clear)
         return repository
 
     def test_page_and_count_use_one_consistent_snapshot(self):

@@ -219,14 +219,16 @@ class StorageContractMixin:
         self.assertIsNone(self.repository.get(str(uuid4())))
         self.assertIsNone(self.repository.get("not-a-uuid"))
 
-    def test_clear_removes_events_but_keeps_policy(self):
+    def test_public_wipe_is_unavailable(self):
         policy = RetentionPolicy(enabled=True, older_than_days=30, max_entries=5)
         self.repository.set_policy(policy)
-        self.append(comment="removed")
-        self.repository.record_governance("clear", "manager", "clear the log")
-        self.repository.clear()
-        self.assertEqual(self.repository.events(), [])
-        self.assertEqual(self.repository.last_digest(), "")
+        entry = self.append(comment="retained")
+        self.repository.record_governance(
+            "retention_policy_changed", "manager", "retain the configured policy"
+        )
+        self.assertFalse(hasattr(self.repository, "clear"))
+        self.assertEqual(self.repository.get(entry["uuid"]), entry)
+        self.assertEqual(self.repository.events(), [entry])
         self.assertEqual(self.repository.policy(), policy)
         self.assertEqual(len(self.repository.journal()), 1)
 
@@ -352,12 +354,12 @@ class StorageContractMixin:
             self.repository.delete_preview(preview, "retention policy cleanup")
 
     def test_delete_preview_removes_events_and_counts_missing(self):
-        self.append(self.now - timedelta(days=400), "expired")
+        expired = self.append(self.now - timedelta(days=400), "expired")
         self.append(self.now, "keep")
         preview = self.repository.preview_delete(
             RetentionPolicy(enabled=True, older_than_days=365), self.now
         )
-        self.repository.clear()
+        self.repository._delete_events((UUID(expired["uuid"]),))
         self.append(self.now, "recreated")
         result = self.repository.delete_preview(preview, "retention policy cleanup")
         self.assertEqual((result.requested, result.eligible), (1, 1))

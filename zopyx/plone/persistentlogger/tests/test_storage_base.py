@@ -62,9 +62,6 @@ class StubStorage(BaseLogStorage):
     def _delete_events(self, event_ids):
         return (len(event_ids), 0)
 
-    def _remove_all_events(self):
-        self.entries_data.clear()
-
     def _load_journal(self):
         return []
 
@@ -129,9 +126,8 @@ class BaseLogStorageTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "missing or stale"):
             storage.delete_preview(preview, "retention policy cleanup")
 
-        storage.clear()
-        self.assertEqual(storage.events(), [])
-        self.assertIsNone(storage.get(entry["uuid"]))
+        self.assertFalse(hasattr(storage, "clear"))
+        self.assertEqual(storage.get(entry["uuid"]), entry)
 
     def test_event_digest_is_canonical_and_verifiable(self):
         event = LogEvent(
@@ -185,7 +181,7 @@ class BaseLogStorageTests(unittest.TestCase):
             entry["integrity_digest"],
         )
 
-    def test_append_chain_uses_deterministic_timestamp_order(self):
+    def test_append_chain_rebuilds_deterministic_timestamp_order(self):
         storage = StubStorage()
         newest = LogEvent(
             comment="newest",

@@ -41,6 +41,7 @@ from ..storage import factory as storage_factory
 from ..storage.rdbms import EventRecord, GovernanceRecord, SQLRepository, get_engine
 from .base import POLICY_INTEGRATION_TESTING
 from .postgres import database_url
+from .test_storage_rdbms import Context as RdbmsContext
 
 
 class RdbmsAuditIntegrationTests(unittest.TestCase):
@@ -177,9 +178,9 @@ class RdbmsAuditIntegrationTests(unittest.TestCase):
 
     # -- retention and governance journal ----------------------------------
     def test_retention_deletes_rows_and_journals_in_postgres(self):
-        uid = object_uid(self.portal)
-        repository = self.repository()
-        repository.clear()
+        context = RdbmsContext("integration-retention")
+        uid = object_uid(context)
+        repository = self.repository(context)
         repository.append(self.event(days_ago=31, comment="old one"))
         repository.append(self.event(days_ago=30, comment="old two"))
         repository.append(self.event(days_ago=1, comment="recent"))
@@ -209,15 +210,21 @@ class RdbmsAuditIntegrationTests(unittest.TestCase):
         self.assertEqual(repository.journal()[-1]["deleted"], 2)
 
     def test_retention_gui_works_on_the_rdbms_backend(self):
-        uid = object_uid(self.portal)
-        repository = self.repository()
-        repository.clear()
+        context = RdbmsContext("integration-retention-gui")
+        uid = object_uid(context)
+        repository = self.repository(context)
         repository.append(self.event(days_ago=90, comment="ancient"))
         self.assertEqual(self.event_rows(uid), 1)
 
         request = self.portal.REQUEST
         request.method = "POST"
-        with patch("zopyx.plone.persistentlogger.browser.retention.CheckAuthenticator"):
+        with (
+            patch("zopyx.plone.persistentlogger.browser.retention.CheckAuthenticator"),
+            patch(
+                "zopyx.plone.persistentlogger.browser.retention.get_repository",
+                return_value=repository,
+            ),
+        ):
             request.form.clear()
             request.form.update(
                 {

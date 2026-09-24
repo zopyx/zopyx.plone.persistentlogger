@@ -121,13 +121,9 @@ class RdbmsSpecificTests(unittest.TestCase):
 
     def setUp(self):
         self.url = database_url()
-        self.context = Context("rdbms-specific")
+        self.context = Context(f"rdbms-specific-{uuid4()}")
         self.repository = SQLRepository(self.context, database_url=self.url)
-        self.repository.clear()
         self.now = datetime(2026, 1, 1, tzinfo=UTC)
-
-    def tearDown(self):
-        self.repository.clear()
 
     def test_engine_is_cached_per_url(self):
         engine = get_engine(self.url)

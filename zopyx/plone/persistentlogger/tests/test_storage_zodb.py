@@ -173,12 +173,12 @@ class ZodbSpecificTests(unittest.TestCase):
         self.assertEqual(policy["older_than_days"], 365)
         self.assertIs(policy, self.store[POLICY_KEY])
 
-    def test_clear_replaces_the_annotation_store(self):
+    def test_public_wipe_is_unavailable(self):
         self.repository.append(LogEvent(comment="entry", created_at=self.now))
-        self.repository.clear()
+        self.assertFalse(hasattr(self.repository, "clear"))
         self.assertIsInstance(self.store[LOG_KEY], OOBTree)
-        self.assertEqual(len(self.store[LOG_KEY]), 0)
-        self.assertEqual(self.repository.events(), [])
+        self.assertEqual(len(self.store[LOG_KEY]), 1)
+        self.assertEqual(self.repository.events()[0]["comment"], "entry")
 
     def test_previews_are_stored_in_annotations(self):
         preview = self.repository.preview_delete(RetentionPolicy(), self.now)

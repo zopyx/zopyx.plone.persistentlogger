@@ -158,9 +158,6 @@ class AnnotationRepository(BaseLogStorage):
             store._p_changed = True
         return deleted, missing
 
-    def _remove_all_events(self) -> None:
-        IAnnotations(self.context)[LOG_KEY] = OOBTree()
-
     # ------------------------------------------------------------------
     # governance journal primitives
     # ------------------------------------------------------------------
