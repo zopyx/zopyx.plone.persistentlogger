@@ -173,9 +173,9 @@ class BaseLogStorageTests(unittest.TestCase):
         storage.append(oldest)
         entries = storage.events()
         self.assertEqual([entry["comment"] for entry in entries], ["oldest", "newest"])
-        self.assertEqual(entries[0]["previous_digest"], "")
-        self.assertEqual(entries[1]["previous_digest"], entries[0]["integrity_digest"])
-        self.assertEqual(storage.last_digest(), entries[1]["integrity_digest"])
+        self.assertEqual(entries[0]["previous_digest"], entries[1]["integrity_digest"])
+        self.assertEqual(entries[1]["previous_digest"], "")
+        self.assertEqual(storage.last_digest(), entries[0]["integrity_digest"])
         self.assertTrue(verify_event_chain(entries))
 
 

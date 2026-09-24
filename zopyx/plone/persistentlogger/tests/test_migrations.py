@@ -122,8 +122,12 @@ class MigrationTests(unittest.TestCase):
             side_effect=get_annotations,
         ):
             self.assertEqual(migrate_site(SimpleNamespace(getSite=lambda: site)), 2)
-        self.assertTrue(verify_event_chain(list(annotations[id(site)][LOG_KEY].values())))
-        self.assertTrue(verify_event_chain(list(annotations[id(content)][LOG_KEY].values())))
+        self.assertTrue(
+            verify_event_chain(list(annotations[id(site)][LOG_KEY].values()))
+        )
+        self.assertTrue(
+            verify_event_chain(list(annotations[id(content)][LOG_KEY].values()))
+        )
         self.assertTrue(migrate_annotations(annotations[id(site)]) == 0)
 
 

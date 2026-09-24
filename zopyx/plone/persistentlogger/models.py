@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from typing import Any
 from uuid import UUID, uuid4
@@ -47,6 +47,9 @@ def normalize_severity(value: Severity | str) -> Severity:
 
 def utc_now() -> datetime:
     return datetime.now(UTC)
+
+
+PREVIEW_TTL = timedelta(hours=1)
 
 
 def require_utc(value: datetime) -> datetime:
@@ -113,6 +116,24 @@ class DeletionPreview:
     cutoff: datetime
     event_ids: tuple[UUID, ...]
     selection_digest: str
+    expires_at: datetime | None = None
+
+    def __post_init__(self) -> None:
+        if self.cutoff.tzinfo is None or self.cutoff.utcoffset() is None:
+            raise ValueError("preview cutoff must be timezone-aware")
+        if self.expires_at is not None:
+            object.__setattr__(self, "expires_at", require_utc(self.expires_at))
+
+    def is_expired(self, now: datetime | None = None) -> bool:
+        """Return whether this preview is no longer safe to consume.
+
+        Previews created before TTL support have no expiry timestamp and remain
+        valid for compatibility with the historical confirmation workflow.
+        """
+        if self.expires_at is None:
+            return False
+        current = require_utc(now or utc_now())
+        return current >= self.expires_at
 
 
 @dataclass(frozen=True, slots=True)

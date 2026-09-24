@@ -34,13 +34,14 @@ from sqlalchemy import (
     cast,
     delete,
     func,
+    inspect,
     not_,
     or_,
 )
 from sqlalchemy.engine import Engine
 from sqlmodel import Field, Session, SQLModel, create_engine, select, text
 
-from ..models import DeletionPreview, DeletionResult, LogEvent, RetentionPolicy
+from ..models import DeletionPreview, DeletionResult, LogEvent, RetentionPolicy, utc_now
 from ..serialization import canonical_json
 from .base import (
     BaseLogStorage,
@@ -50,6 +51,7 @@ from .base import (
     event_id_of,
     new_event_entry,
     new_governance_entry,
+    next_sequence,
     object_uid,
     selection_digest,
     severity_value,
@@ -73,6 +75,7 @@ __all__ = [
     "EventRecord",
     "GovernanceRecord",
     "ChainHeadRecord",
+    "SchemaVersionRecord",
     "PolicyRecord",
     "PreviewRecord",
     "SQLRepository",
@@ -122,6 +125,7 @@ class EventRecord(SQLModel, table=True):
     info_url: str | None = Field(default=None, max_length=2048, nullable=True)
     details: Any = Field(default=None, sa_column=Column(JSON, nullable=True))
     schema_version: int = Field(default=1, sa_column=Column(Integer, nullable=False))
+    sequence: int | None = Field(default=None, sa_column=Column(Integer, nullable=True))
     previous_digest: str = Field(default="", max_length=64)
     integrity_digest: str = Field(default="", max_length=64)
 
@@ -169,6 +173,10 @@ class PreviewRecord(SQLModel, table=True):
     )
     event_ids: Any = Field(default_factory=list, sa_column=Column(JSON, nullable=False))
     selection_digest: str = Field(default="", max_length=64)
+    expires_at: datetime | None = Field(
+        default=None,
+        sa_column=Column(DateTime(timezone=True), nullable=True, index=True),
+    )
 
 
 class ChainHeadRecord(SQLModel, table=True):
@@ -183,12 +191,55 @@ class ChainHeadRecord(SQLModel, table=True):
     governance_digest: str = Field(default="", max_length=64)
 
 
+class SchemaVersionRecord(SQLModel, table=True):
+    """Version marker for additive RDBMS schema changes."""
+
+    __tablename__ = f"{TABLE_PREFIX}schema_version"
+
+    name: str = Field(default="audit", primary_key=True, max_length=64)
+    version: int = Field(default=1, sa_column=Column(Integer, nullable=False))
+
+
+SCHEMA_VERSION = 2
+
+
 _engines: dict[str, Engine] = {}
 _engines_lock = Lock()
 
 
+def _upgrade_event_sequence_column(engine: Engine) -> None:
+    """Add the nullable sequence column to pre-sequence installations."""
+    columns = {
+        column["name"]
+        for column in inspect(engine).get_columns(str(EventRecord.__tablename__))
+    }
+    if "sequence" in columns:
+        return
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                f'ALTER TABLE "{EventRecord.__tablename__}" ADD COLUMN sequence INTEGER'
+            )
+        )
+
+
+def _ensure_schema_version(engine: Engine) -> None:
+    _upgrade_event_sequence_column(engine)
+    with Session(engine) as session, session.begin():
+        marker = session.get(SchemaVersionRecord, "audit")
+        if marker is None:
+            session.add(SchemaVersionRecord(name="audit", version=SCHEMA_VERSION))
+        elif marker.version > SCHEMA_VERSION:
+            raise StorageConfigurationError(
+                f"audit database schema {marker.version} is newer than supported "
+                f"version {SCHEMA_VERSION}"
+            )
+        elif marker.version < SCHEMA_VERSION:
+            marker.version = SCHEMA_VERSION
+
+
 def get_engine(database_url: str) -> Engine:
-    """Return the (cached) engine for a database URL, creating the schema."""
+    """Return the cached engine and apply additive compatible schema changes."""
     engine = _engines.get(database_url)
     if engine is None:
         with _engines_lock:
@@ -200,6 +251,7 @@ def get_engine(database_url: str) -> Engine:
                     json_serializer=canonical_json,
                 )
                 SQLModel.metadata.create_all(engine)
+                _ensure_schema_version(engine)
                 _engines[database_url] = engine
     return engine
 
@@ -241,6 +293,7 @@ def event_to_row(entry: dict[str, Any]) -> dict[str, Any]:
         "info_url": entry.get("info_url"),
         "details": entry.get("details_raw", entry.get("details")),
         "schema_version": int(entry.get("schema_version", 1) or 1),
+        "sequence": entry.get("sequence"),
         "previous_digest": str(entry.get("previous_digest", "") or ""),
         "integrity_digest": str(entry.get("integrity_digest", "") or ""),
     }
@@ -261,6 +314,7 @@ def event_to_entry(record: EventRecord) -> dict[str, Any]:
         "info_url": record.info_url,
         "details": details,
         "schema_version": record.schema_version,
+        "sequence": record.sequence,
         "integrity_digest": record.integrity_digest,
         "uuid": record.event_id,
         "date": created_at,
@@ -480,35 +534,24 @@ class SQLRepository(BaseLogStorage):
         return head
 
     def append(self, event: LogEvent) -> dict[str, Any]:
-        """Append an event and rebuild the timestamp-ordered head atomically."""
+        """Append an event to the persisted chain head atomically."""
         with self._lock("events"):
             with Session(self.engine) as session, session.begin():
                 event_id = str(event.event_id)
                 if session.get(EventRecord, (event_id, self.uid)) is not None:
                     raise ValueError(f"event id {event_id} already exists")
                 head = self._locked_head(session)
-                entry = new_event_entry(event, head.event_digest)
-                session.add(EventRecord(object_uid=self.uid, **event_to_row(entry)))
-                session.flush()
-                records = session.scalars(
+                existing = session.scalars(
                     select(EventRecord).where(EventRecord.object_uid == self.uid)
                 ).all()
-                ordered = sorted(
-                    records,
-                    key=lambda row: (event_date(event_to_entry(row)), row.event_id),
+                entry = new_event_entry(
+                    event,
+                    head.event_digest,
+                    next_sequence([event_to_entry(row) for row in existing]),
                 )
-                previous = ""
-                for row in ordered:
-                    canonical = event_to_entry(row)
-                    canonical["previous_digest"] = previous
-                    canonical["integrity_digest"] = event_digest(canonical)
-                    row.previous_digest = canonical["previous_digest"]
-                    row.integrity_digest = canonical["integrity_digest"]
-                    if row.event_id == event_id:
-                        entry.update(canonical)
-                    previous = canonical["integrity_digest"]
-                head.event_id = ordered[-1].event_id
-                head.event_digest = previous
+                session.add(EventRecord(object_uid=self.uid, **event_to_row(entry)))
+                head.event_id = event_id
+                head.event_digest = entry["integrity_digest"]
             return entry
 
     def _load_event_head(self) -> str:
@@ -595,6 +638,16 @@ class SQLRepository(BaseLogStorage):
                 raise ValueError(f"event id {row['event_id']} already exists")
             session.add(EventRecord(object_uid=self.uid, **row))
 
+    def _rewrite_event(self, entry: dict[str, Any]) -> None:
+        """Persist a changed digest during retention relinking or repair."""
+        row = event_to_row(entry)
+        with Session(self.engine) as session, session.begin():
+            record = session.get(EventRecord, (row["event_id"], self.uid))
+            if record is None:
+                raise ValueError(f"event id {row['event_id']} does not exist")
+            record.previous_digest = row["previous_digest"]
+            record.integrity_digest = row["integrity_digest"]
+
     def _delete_events(self, event_ids: tuple[UUID, ...]) -> tuple[int, int]:
         keys = [str(event_id) for event_id in event_ids]
         if not keys:
@@ -608,6 +661,57 @@ class SQLRepository(BaseLogStorage):
             )
         deleted = int(result.rowcount or 0)
         return deleted, len(keys) - deleted
+
+    def _relink_after_delete(
+        self, session: Session, event_ids: tuple[UUID, ...]
+    ) -> tuple[int, int, str]:
+        """Delete selected rows and relink the surviving rows in one transaction."""
+        head = self._locked_head(session)
+        rows = session.scalars(
+            select(EventRecord).where(EventRecord.object_uid == self.uid)
+        ).all()
+        selected = {str(event_id) for event_id in event_ids}
+        keys = list(selected)
+        result = (
+            session.exec(
+                delete(EventRecord).where(
+                    EventRecord.object_uid == self.uid,
+                    EventRecord.event_id.in_(keys),
+                )
+            )
+            if keys
+            else None
+        )
+        deleted = int(result.rowcount or 0) if result is not None else 0
+        missing = len(keys) - deleted
+        survivors = [
+            entry
+            for entry in self._chain_order([event_to_entry(row) for row in rows])
+            if event_id_of(entry) not in selected
+        ]
+        anchor = ""
+        previous = ""
+        rows_by_id = {row.event_id: row for row in rows}
+        if deleted:
+            for entry in survivors:
+                entry["previous_digest"] = previous
+                entry["integrity_digest"] = event_digest(entry)
+                row = rows_by_id[event_id_of(entry)]
+                row.previous_digest = entry["previous_digest"]
+                row.integrity_digest = entry["integrity_digest"]
+                anchor = anchor or str(entry["integrity_digest"])
+                previous = str(entry["integrity_digest"])
+        else:
+            previous = self._chain_tail(
+                [
+                    entry
+                    for entry in (event_to_entry(row) for row in rows)
+                    if event_id_of(entry) not in selected
+                ]
+            )
+        head.event_id = event_id_of(survivors[-1]) if survivors else ""
+        head.event_digest = previous
+        return deleted, missing, anchor
 
     def _remove_all_events(self) -> None:
         with Session(self.engine) as session, session.begin():
@@ -623,31 +727,50 @@ class SQLRepository(BaseLogStorage):
             ).all()
         return [governance_to_entry(record) for record in records]
 
-    def _store_governance(self, entry: dict[str, Any]) -> None:
+    @staticmethod
+    def _governance_model(
+        entry: dict[str, Any], object_uid_value: str
+    ) -> GovernanceRecord:
+        """Build a governance row without opening a second session."""
         payload = {
             key: value
             for key, value in entry.items()
             if key not in _RESERVED_GOVERNANCE_KEYS
         }
+        return GovernanceRecord(
+            event_id=str(entry["event_id"]),
+            object_uid=object_uid_value,
+            created_at=_as_utc(entry["created_at"]),
+            actor=str(entry["actor"]),
+            action=str(entry["action"]),
+            reason=str(entry["reason"]),
+            payload=payload or None,
+            previous_digest=str(entry.get("previous_digest", "")),
+            integrity_digest=str(entry.get("integrity_digest", "")),
+        )
+
+    def _store_governance_in_session(
+        self, session: Session, entry: dict[str, Any]
+    ) -> None:
+        """Add governance evidence to an existing transaction."""
+        if (
+            session.get(GovernanceRecord, (str(entry["event_id"]), self.uid))
+            is not None
+        ):
+            raise ValueError(f"governance id {entry['event_id']} already exists")
+        session.add(self._governance_model(entry, self.uid))
+
+    def _store_governance(self, entry: dict[str, Any]) -> None:
         with Session(self.engine) as session, session.begin():
-            if (
-                session.get(GovernanceRecord, (str(entry["event_id"]), self.uid))
-                is not None
-            ):
-                raise ValueError(f"governance id {entry['event_id']} already exists")
-            session.add(
-                GovernanceRecord(
-                    event_id=str(entry["event_id"]),
-                    object_uid=self.uid,
-                    created_at=_as_utc(entry["created_at"]),
-                    actor=str(entry["actor"]),
-                    action=str(entry["action"]),
-                    reason=str(entry["reason"]),
-                    payload=payload or None,
-                    previous_digest=str(entry.get("previous_digest", "")),
-                    integrity_digest=str(entry.get("integrity_digest", "")),
-                )
-            )
+            self._store_governance_in_session(session, entry)
+
+    def _store_governance_head_in_session(
+        self, session: Session, entry: dict[str, Any]
+    ) -> None:
+        """Update governance head in an existing transaction."""
+        head = self._locked_head(session)
+        head.governance_event_id = str(entry["event_id"])
+        head.governance_digest = str(entry["integrity_digest"])
 
     def _load_governance_head(self) -> str:
         with Session(self.engine) as session:
@@ -717,6 +840,17 @@ class SQLRepository(BaseLogStorage):
                 )
             )
 
+    @staticmethod
+    def _preview_from_record(record: PreviewRecord) -> DeletionPreview:
+        return DeletionPreview(
+            UUID(record.operation_id),
+            record.object_uid,
+            _as_utc(record.cutoff),
+            tuple(UUID(str(event_id)) for event_id in (record.event_ids or [])),
+            record.selection_digest,
+            _as_utc(record.expires_at) if record.expires_at is not None else None,
+        )
+
     def _store_preview(self, preview: DeletionPreview) -> None:
         with Session(self.engine) as session, session.begin():
             session.merge(
@@ -726,8 +860,45 @@ class SQLRepository(BaseLogStorage):
                     cutoff=_as_utc(preview.cutoff),
                     event_ids=[str(event_id) for event_id in preview.event_ids],
                     selection_digest=preview.selection_digest,
+                    expires_at=(
+                        None
+                        if preview.expires_at is None
+                        else _as_utc(preview.expires_at)
+                    ),
                 )
             )
+
+    def cleanup_expired_previews(self, now: datetime | None = None) -> int:
+        """Delete expired previews for this object only."""
+        current = _as_utc(now or utc_now())
+        with Session(self.engine) as session, session.begin():
+            expires_at = getattr(PreviewRecord, "expires_at")
+            result = session.exec(
+                delete(PreviewRecord).where(
+                    getattr(PreviewRecord, "object_uid") == self.uid,
+                    or_(expires_at.is_(None), expires_at <= current),
+                )
+            )
+            return int(result.rowcount or 0)
+
+    def remove_object(self) -> int:
+        """Delete all external audit rows owned by this exact object UID."""
+        models = (
+            EventRecord,
+            GovernanceRecord,
+            PolicyRecord,
+            PreviewRecord,
+            ChainHeadRecord,
+        )
+        with self._lock("events"), self._lock("governance"):
+            with Session(self.engine) as session, session.begin():
+                deleted = 0
+                for model in models:
+                    result = session.exec(
+                        delete(model).where(getattr(model, "object_uid") == self.uid)
+                    )
+                    deleted += int(result.rowcount or 0)
+                return deleted
 
     def _consume_preview(self, preview: DeletionPreview) -> DeletionPreview | None:
         with Session(self.engine) as session, session.begin():
@@ -740,16 +911,25 @@ class SQLRepository(BaseLogStorage):
                 _as_utc(record.cutoff),
                 tuple(UUID(str(event_id)) for event_id in (record.event_ids or [])),
                 record.selection_digest,
+                None if record.expires_at is None else _as_utc(record.expires_at),
             )
             if stored != preview:
                 return None
             session.delete(record)
             return stored
 
-    def delete_preview(self, preview: DeletionPreview, reason: str) -> DeletionResult:
+    def delete_preview(
+        self,
+        preview: DeletionPreview,
+        reason: str,
+        now: datetime | None = None,
+    ) -> DeletionResult:
         """Consume preview, delete events, and write governance atomically."""
         if len(reason.strip()) < 10:
             raise ValueError("deletion reason must contain at least 10 characters")
+        current = _as_utc(now) if now is not None else None
+        if current is not None:
+            self.cleanup_expired_previews(current)
         with self._lock("events"):
             with Session(self.engine) as session, session.begin():
                 record = session.get(
@@ -763,6 +943,7 @@ class SQLRepository(BaseLogStorage):
                     _as_utc(record.cutoff),
                     tuple(UUID(str(event_id)) for event_id in (record.event_ids or [])),
                     record.selection_digest,
+                    None if record.expires_at is None else _as_utc(record.expires_at),
                 )
                 if (
                     stored != preview
@@ -774,33 +955,73 @@ class SQLRepository(BaseLogStorage):
                 ):
                     raise ValueError("deletion preview is missing or stale")
                 session.delete(record)
-                keys = [str(event_id) for event_id in stored.event_ids]
-                result = session.exec(
-                    delete(EventRecord).where(
-                        EventRecord.object_uid == self.uid,
-                        EventRecord.event_id.in_(keys),
+                deleted, missing, _ = self._relink_after_delete(
+                    session, stored.event_ids
+                )
+            return self._deletion_result(stored, reason, deleted, missing)
+
+    def delete_and_journal(
+        self,
+        preview: DeletionPreview,
+        reason: str,
+        actor: str,
+        now: datetime | None = None,
+    ) -> DeletionResult:
+        """Delete and record retention evidence in one database transaction."""
+        if len(reason.strip()) < 10:
+            raise ValueError("deletion reason must contain at least 10 characters")
+        current = _as_utc(now) if now is not None else None
+        if current is not None:
+            self.cleanup_expired_previews(current)
+        with self._lock("events"), self._lock("governance"):
+            with Session(self.engine) as session, session.begin():
+                record = session.get(
+                    PreviewRecord, (str(preview.operation_id), self.uid)
+                )
+                if record is None:
+                    raise ValueError("deletion preview is missing or stale")
+                stored = DeletionPreview(
+                    UUID(record.operation_id),
+                    record.object_uid,
+                    _as_utc(record.cutoff),
+                    tuple(UUID(str(event_id)) for event_id in (record.event_ids or [])),
+                    record.selection_digest,
+                    None if record.expires_at is None else _as_utc(record.expires_at),
+                )
+                if (
+                    stored != preview
+                    or stored.object_uid != self.uid
+                    or stored.selection_digest
+                    != selection_digest(
+                        stored.object_uid, stored.event_ids, stored.cutoff
                     )
-                )
-                deleted = int(result.rowcount or 0)
-                missing = len(keys) - deleted
+                ):
+                    raise ValueError("deletion preview is missing or stale")
+
+                # Lock the shared head before reading the governance tail and
+                # keep this row attached to the same transaction throughout.
                 head = self._locked_head(session)
-                session.flush()
-                remaining = session.scalars(
-                    select(EventRecord).where(EventRecord.object_uid == self.uid)
-                ).all()
-                head.event_digest = self._chain_tail(
-                    [event_to_entry(row) for row in remaining]
+                session.delete(record)
+                deleted, missing, survivor_digest = self._relink_after_delete(
+                    session, stored.event_ids
                 )
-                head.event_id = ""
-            return DeletionResult(
-                stored.operation_id,
-                len(keys),
-                len(keys),
-                deleted,
-                missing,
-                0,
-                reason,
-            )
+                result = self._deletion_result(stored, reason, deleted, missing)
+                entry = new_governance_entry(
+                    "retention_delete",
+                    actor,
+                    reason,
+                    head.governance_digest,
+                    operation_id=str(result.operation_id),
+                    requested=result.requested,
+                    eligible=result.eligible,
+                    deleted=result.deleted,
+                    missing=result.missing,
+                    failed=result.failed,
+                    survivor_digest=survivor_digest,
+                )
+                self._store_governance_in_session(session, entry)
+                self._store_governance_head_in_session(session, entry)
+            return result
 
     def _load_preview(self, operation_id: str) -> DeletionPreview | None:
         with Session(self.engine) as session:
@@ -813,4 +1034,5 @@ class SQLRepository(BaseLogStorage):
                 _as_utc(record.cutoff),
                 tuple(UUID(str(event_id)) for event_id in (record.event_ids or [])),
                 record.selection_digest,
+                None if record.expires_at is None else _as_utc(record.expires_at),
             )

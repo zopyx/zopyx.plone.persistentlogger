@@ -346,8 +346,17 @@ class BaseLogStorage(ABC):
         keeps the integrity chain reproducible on every backend.
         """
         records = [entry for entry in self._load_events() if isinstance(entry, dict)]
+        chain_order = self._chain_order(records)
+        chain_rank = {
+            event_id_of(entry): index for index, entry in enumerate(chain_order)
+        }
         return sorted(
-            records, key=lambda entry: (event_date(entry), event_id_of(entry))
+            records,
+            key=lambda entry: (
+                event_date(entry),
+                chain_rank.get(event_id_of(entry), len(records)),
+                event_id_of(entry),
+            ),
         )
 
     @staticmethod
@@ -540,9 +549,9 @@ class BaseLogStorage(ABC):
         self, preview: DeletionPreview, now: datetime | None = None
     ) -> DeletionPreview:
         """Return a stored, unexpired preview after validating its selection."""
-        current = require_utc(now or utc_now())
+        current = require_utc(now) if now is not None else None
         stored = self._load_preview(str(preview.operation_id))
-        if stored is not None and stored.is_expired(current):
+        if stored is not None and current is not None and stored.is_expired(current):
             self.cleanup_expired_previews(current)
             stored = None
         if (
@@ -663,7 +672,8 @@ class BaseLogStorage(ABC):
         self, operation_id: Any, now: datetime | None = None
     ) -> DeletionPreview | None:
         """Return an unexpired stored deletion preview or ``None``."""
-        self.cleanup_expired_previews(now)
+        if now is not None:
+            self.cleanup_expired_previews(now)
         return self._load_preview(str(operation_id))
 
     # ------------------------------------------------------------------

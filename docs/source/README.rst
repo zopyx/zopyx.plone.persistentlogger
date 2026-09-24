@@ -508,11 +508,12 @@ adapter) keeps working with either backend:
 ``integrity_digest``
     SHA-256 digest over the record content and ``previous_digest``.
 
-Records of one object are ordered by ``(created_at, event_id)``, which makes
-the order - and therefore the hash chain - reproducible on every backend. The
-chain links each record to its predecessor in that order, so audit records are
-appended in chronological order: an out-of-order import of historical records
-does not retroactively rewrite the chain of already stored records.
+Records of one object are displayed in ``(created_at, event_id)`` order. The
+integrity chain itself is append-only: each new record links to the persisted
+head, regardless of its caller-supplied timestamp. An explicit retention
+operation may relink the surviving interval; it records the new first-survivor
+digest in the governance journal as the chain anchor. Normal appends never
+rewrite existing records.
 
 Governance records carry ``event_id``, ``created_at``, ``actor``, ``action``,
 ``reason``, the caller supplied payload keys, ``previous_digest`` and

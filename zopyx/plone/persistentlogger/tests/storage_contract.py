@@ -73,7 +73,7 @@ class StorageContractMixin:
         self.assertEqual(self.repository.journal(), [])
         self.assertEqual(self.repository.last_digest(), "")
         self.assertIsNone(self.repository.get(str(uuid4())))
-        self.assertIsNone(self.repository.get_preview(str(uuid4())))
+        self.assertIsNone(self.repository.get_preview(str(uuid4()), self.now))
 
     def test_default_policy_is_disabled(self):
         policy = self.repository.policy()
@@ -100,6 +100,7 @@ class StorageContractMixin:
                 "level",
                 "previous_digest",
                 "schema_version",
+                "sequence",
                 "severity",
                 "target",
                 "username",
@@ -119,6 +120,7 @@ class StorageContractMixin:
         self.assertEqual(entry["target"], "context")
         self.assertIsNone(entry["info_url"])
         self.assertEqual(entry["schema_version"], 1)
+        self.assertEqual(entry["sequence"], 1)
         self.assertTrue(entry["integrity_digest"])
         self.assertEqual(entry["previous_digest"], "")
 
@@ -131,8 +133,8 @@ class StorageContractMixin:
         self.assertEqual(stored["date"], self.now - timedelta(days=3))
 
     def test_append_builds_integrity_chain(self):
-        # The chain follows the canonical record order, which is defined by
-        # the timestamps: each record links to its predecessor.
+        # The chain follows append order.  ``events()`` still presents
+        # records by timestamp for display and query consumers.
         first = self.append(self.now - timedelta(minutes=3), "first")
         second = self.append(self.now - timedelta(minutes=2), "second")
         third = self.append(self.now - timedelta(minutes=1), "third")
@@ -143,6 +145,27 @@ class StorageContractMixin:
         self.assertEqual(
             len({first["integrity_digest"], second["integrity_digest"]}), 2
         )
+
+    def test_append_keeps_existing_records_immutable(self):
+        """Later and backdated appends do not rewrite prior digests."""
+        first = self.append(self.now, "first")
+        second = self.append(self.now + timedelta(days=1), "second")
+        before = {
+            entry["uuid"]: (entry["previous_digest"], entry["integrity_digest"])
+            for entry in self.repository.events()
+        }
+        with patch.object(self.repository, "_rewrite_event") as rewrite:
+            self.append(self.now - timedelta(days=1), "backdated")
+        rewrite.assert_not_called()
+        for entry in self.repository.events():
+            if entry["uuid"] in before:
+                self.assertEqual(
+                    (entry["previous_digest"], entry["integrity_digest"]),
+                    before[entry["uuid"]],
+                )
+        self.assertEqual(first["previous_digest"], "")
+        self.assertEqual(second["previous_digest"], first["integrity_digest"])
+        self.assertTrue(verify_event_chain(self.repository.events()))
 
     def test_events_are_ordered_by_timestamp(self):
         newest = self.append(self.now, "newest")
@@ -251,7 +274,7 @@ class StorageContractMixin:
         )
         stored = self.repository.get_preview(preview.operation_id)
         self.assertEqual(stored, preview)
-        self.assertIsNone(self.repository.get_preview(str(uuid4())))
+        self.assertIsNone(self.repository.get_preview(str(uuid4()), self.now))
 
     def test_preview_is_isolated_per_object(self):
         preview = self.repository.preview_delete(RetentionPolicy(), self.now)
@@ -328,6 +351,30 @@ class StorageContractMixin:
         self.assertEqual((result.requested, result.eligible), (1, 1))
         self.assertEqual((result.deleted, result.missing, result.failed), (0, 1, 0))
         self.assertEqual(result.reason, "retention policy cleanup")
+
+    def test_delete_then_verify_preserves_and_anchors_survivors(self):
+        """Retention relinks survivors and records a verifiable root anchor."""
+        operation_now = datetime.now(UTC)
+        self.append(operation_now - timedelta(days=400), "expired")
+        self.append(operation_now - timedelta(days=10), "survivor-one")
+        self.append(operation_now, "survivor-two")
+        preview = self.repository.preview_delete(
+            RetentionPolicy(enabled=True, older_than_days=365), operation_now
+        )
+        result = self.repository.delete_and_journal(
+            preview, "retention policy cleanup", "manager"
+        )
+        self.assertEqual((result.deleted, result.missing), (1, 0))
+        events = self.repository.events()
+        self.assertTrue(verify_event_chain(events))
+        journal = self.repository.journal()
+        self.assertTrue(verify_governance_chain(journal))
+        anchor = journal[-1]["survivor_digest"]
+        self.assertEqual(anchor, self.repository.event_chain_anchor())
+        self.assertTrue(verify_event_chain(events, anchor))
+        tampered = [dict(entry) for entry in events]
+        tampered[0]["comment"] = "tampered survivor"
+        self.assertFalse(verify_event_chain(tampered, anchor))
 
     def test_delete_preview_removes_only_selected_events(self):
         self.append(self.now - timedelta(days=400), "expired")

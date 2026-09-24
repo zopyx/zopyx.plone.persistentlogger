@@ -18,7 +18,7 @@ from persistent.mapping import PersistentMapping
 from zope.annotation.interfaces import IAnnotations
 
 from ..migrations.v1 import migrate_store
-from ..models import DeletionPreview, RetentionPolicy
+from ..models import DeletionPreview, DeletionResult, RetentionPolicy
 from .base import BaseLogStorage, event_id_of
 
 __all__ = [
@@ -52,12 +52,16 @@ class AnnotationRepository(BaseLogStorage):
         return annotations[LOG_KEY]
 
     def delete_and_journal(
-        self, preview: DeletionPreview, reason: str, actor: str
-    ):
+        self,
+        preview: DeletionPreview,
+        reason: str,
+        actor: str,
+        now: datetime | None = None,
+    ) -> DeletionResult:
         """Keep deletion and its evidence in one surrounding ZODB transaction."""
         savepoint = transaction.savepoint()
         try:
-            return super().delete_and_journal(preview, reason, actor)
+            return super().delete_and_journal(preview, reason, actor, now=now)
         except Exception:
             # Do not leave annotation mutations live when journaling fails.
             # The caller still owns the surrounding transaction; rolling back

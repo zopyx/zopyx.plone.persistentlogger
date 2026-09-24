@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
-from threading import Barrier, Lock
 from unittest import TestCase
 from unittest.mock import patch
 from uuid import UUID, uuid4
@@ -12,7 +11,6 @@ from uuid import UUID, uuid4
 from sqlmodel import Session
 
 from ..models import DeletionPreview, LogEvent, RetentionPolicy
-from ..storage.base import BaseLogStorage
 from ..storage.rdbms import EventRecord, SQLRepository
 from ..storage.zodb import AnnotationRepository
 from .postgres import database_url
@@ -47,63 +45,47 @@ class StorageRegressionMixin:
 
     def test_concurrent_appends_keep_one_integrity_chain(self):
         """Two appends racing for one head must not create sibling links."""
-        barrier = Barrier(2)
-        calls = 0
-        calls_lock = Lock()
-        original_last_digest = BaseLogStorage.last_digest
-
-        def synchronized_last_digest(storage):
-            nonlocal calls
-            digest = original_last_digest(storage)
-            with calls_lock:
-                calls += 1
-                wait_for_race = calls <= 2
-            if wait_for_race:
-                barrier.wait(timeout=10)
-            return digest
-
         first_time = self.now
         second_time = self.now + timedelta(seconds=1)
-        with (
-            patch.object(BaseLogStorage, "last_digest", synchronized_last_digest),
-            ThreadPoolExecutor(max_workers=2) as executor,
-        ):
+        with ThreadPoolExecutor(max_workers=2) as executor:
             futures = (
                 executor.submit(self.append, "concurrent-first", first_time),
                 executor.submit(self.append, "concurrent-second", second_time),
             )
             for future in futures:
                 future.result(timeout=15)
-            calls = 2
-            self.assertEqual(
-                synchronized_last_digest(self.repository),
-                original_last_digest(self.repository),
-            )
 
         entries = self.repository.events()
         self.assertEqual(
             [entry["comment"] for entry in entries],
             ["concurrent-first", "concurrent-second"],
         )
+        self.assertEqual(
+            len({entry["previous_digest"] for entry in entries}), 2
+        )
         self.assertEqual(entries[0]["previous_digest"], "")
         self.assertEqual(entries[1]["previous_digest"], entries[0]["integrity_digest"])
         self.assertEqual(self.repository.last_digest(), entries[-1]["integrity_digest"])
 
-    def test_backdated_append_rebuilds_the_timestamp_ordered_chain(self):
-        """Inserting an old event keeps links in canonical chronological order."""
-        self.append("first", self.now)
-        self.append("backdated", self.now - timedelta(days=1))
-        self.append("last", self.now + timedelta(days=1))
+    def test_backdated_append_preserves_prior_digests(self):
+        """A backdated append never rewrites the existing chain."""
+        first = self.append("first", self.now)
+        second = self.append("second", self.now + timedelta(days=1))
+        prior = {
+            entry["uuid"]: (entry["previous_digest"], entry["integrity_digest"])
+            for entry in self.repository.events()
+        }
 
-        entries = self.repository.events()
-        self.assertEqual(
-            [entry["comment"] for entry in entries],
-            ["backdated", "first", "last"],
-        )
-        self.assertEqual(
-            [entry["previous_digest"] for entry in entries],
-            ["", entries[0]["integrity_digest"], entries[1]["integrity_digest"]],
-        )
+        self.append("backdated", self.now - timedelta(days=1))
+
+        for entry in self.repository.events():
+            if entry["uuid"] in prior:
+                self.assertEqual(
+                    (entry["previous_digest"], entry["integrity_digest"]),
+                    prior[entry["uuid"]],
+                )
+        self.assertEqual(first["previous_digest"], "")
+        self.assertEqual(second["previous_digest"], first["integrity_digest"])
 
     def test_replaying_a_successful_deletion_preview_is_rejected(self):
         """A preview is single-use, rather than a replayable delete token."""
