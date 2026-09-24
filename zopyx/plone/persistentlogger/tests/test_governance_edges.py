@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import json
 import unittest
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
+from uuid import uuid4
 
 from ..data_subject import (
     HOLD_KEY,
@@ -463,3 +464,345 @@ class BrowserAPIEdgeTests(unittest.TestCase):
         ):
             with self.assertRaises(RuntimeError):
                 HoldAPI(context, request)()
+
+    def test_api_success_and_validation_exception_paths(self):
+        from ..browser import api
+        from ..browser.api import AuditAPI, AuditExportAPI, HoldAPI
+        from ..data_subject import DataSubjectSearchResult
+        from ..tests.test_m5_m8 import Request
+
+        valid = Request({"event_id": "event-1"})
+        self.assertEqual(api._query(valid).event_id, "event-1")
+        with self.assertRaises(ValueError):
+            api._query(Request({"actor": "x" * 2049}))
+        with self.assertRaises(ValueError):
+            api._hold_id(Request({"hold_id": 123}))
+
+        failing_context = SimpleNamespace(
+            portal_membership=SimpleNamespace(
+                checkPermission=lambda *_: (_ for _ in ()).throw(RuntimeError("lookup"))
+            )
+        )
+        request = Request()
+        payload = json.loads(AuditExportAPI(failing_context, request)())
+        self.assertEqual((request.status, payload["error"]["code"]), (403, "forbidden"))
+
+        repository = MagicMock()
+        result = DataSubjectSearchResult(({"event_id": "event-1"},), 1, 1)
+        request = Request({"limit": "1"})
+        with (
+            patch(
+                "zopyx.plone.persistentlogger.browser.api.search_data_subject",
+                return_value=result,
+            ),
+            patch(
+                "zopyx.plone.persistentlogger.browser.api.get_repository",
+                return_value=repository,
+            ),
+            patch(
+                "zopyx.plone.persistentlogger.browser.api.object_uid",
+                return_value="object-1",
+            ),
+        ):
+            payload = json.loads(AuditAPI(self.context(), request)())
+        self.assertEqual(payload["records"], [{"event_id": "event-1"}])
+        self.assertEqual(request.headers["Content-Type"], "application/json")
+
+        request = Request()
+        with patch(
+            "zopyx.plone.persistentlogger.browser.api.export_journal",
+            side_effect=RuntimeError("backend"),
+        ):
+            payload = json.loads(AuditExportAPI(self.context(), request)())
+        self.assertEqual(
+            (request.status, payload["error"]["code"]), (500, "internal_error")
+        )
+
+        request = Request()
+        payload = json.loads(HoldAPI(self.context(), request)())
+        self.assertEqual(
+            (request.status, payload["error"]["code"]), (405, "method_not_allowed")
+        )
+
+        with patch("zopyx.plone.persistentlogger.browser.api.CheckAuthenticator"):
+            request = Request(
+                {"action": "create", "event_ids": "a" * (1000 * 256 + 1)},
+                method="POST",
+            )
+            payload = json.loads(HoldAPI(self.context(), request)())
+            self.assertEqual(payload["error"]["code"], "invalid_hold")
+            request = Request(
+                {"action": "release", "reason": "x" * 2049}, method="POST"
+            )
+            payload = json.loads(HoldAPI(self.context(), request)())
+            self.assertEqual(payload["error"]["code"], "invalid_hold")
+
+        hold_id = str(uuid4())
+        hold = LegalHold(
+            hold_id, "object-1", "actor", "release reason", datetime.now(UTC)
+        )
+        with (
+            patch("zopyx.plone.persistentlogger.browser.api.CheckAuthenticator"),
+            patch(
+                "zopyx.plone.persistentlogger.browser.api.release_hold",
+                return_value=hold,
+            ),
+        ):
+            request = Request(
+                {
+                    "action": "release",
+                    "hold_id": str(hold.hold_id),
+                    "reason": "release reason",
+                },
+                method="POST",
+            )
+            payload = json.loads(HoldAPI(self.context(), request)())
+        self.assertEqual(payload["hold_id"], hold_id)
+
+        with (
+            patch("zopyx.plone.persistentlogger.browser.api.CheckAuthenticator"),
+            patch(
+                "zopyx.plone.persistentlogger.browser.api.create_hold",
+                side_effect=RuntimeError("backend"),
+            ),
+        ):
+            request = Request(
+                {"action": "create", "reason": "valid reason"}, method="POST"
+            )
+            payload = json.loads(HoldAPI(self.context(), request)())
+        self.assertEqual(
+            (request.status, payload["error"]["code"]), (500, "internal_error")
+        )
+
+    def test_integrity_health_success_response(self):
+        from ..browser.integrity import IntegrityHealthView
+        from ..tests.test_m5_m8 import Request
+
+        report = MagicMock()
+        report.as_dict.return_value = {"status": "healthy"}
+        request = Request()
+        with (
+            patch("zopyx.plone.persistentlogger.browser.integrity.get_repository"),
+            patch(
+                "zopyx.plone.persistentlogger.browser.integrity.verify_repository",
+                return_value=report,
+            ),
+        ):
+            payload = json.loads(IntegrityHealthView(self.context(), request)())
+        self.assertEqual(payload, {"status": "healthy"})
+        self.assertEqual(request.headers["Cache-Control"], "no-store")
+
+        from ..migrations.v1 import (
+            LOG_KEY,
+            QUARANTINE_KEY,
+            _site_objects,
+            migrate_annotations,
+            migrate_site,
+            migrate_store,
+            upgrade_to_3,
+        )
+
+        class FailingQuarantine(dict):
+            failed = False
+
+            def __setitem__(self, key, value):
+                if not self.failed:
+                    self.failed = True
+                    raise TypeError("legacy value")
+                return super().__setitem__(key, value)
+
+        quarantine = FailingQuarantine()
+        self.assertEqual(migrate_store({"bad": object()}, quarantine), 1)
+        self.assertIn("record", next(iter(quarantine.values())))
+        invalid_schema = {"bad": {"uuid": "schema", "schema_version": "bad"}}
+        self.assertEqual(migrate_store(invalid_schema), 1)
+        invalid_sequence = {"bad": {"uuid": "sequence", "sequence": 0}}
+        self.assertEqual(migrate_store(invalid_sequence), 0)
+        self.assertEqual(invalid_sequence["bad"]["sequence"], 0)
+        valid_sequence = {"good": {"uuid": "sequence", "sequence": "2"}}
+        self.assertEqual(migrate_store(valid_sequence), 1)
+        self.assertEqual(next(iter(valid_sequence.values()))["sequence"], 2)
+
+        duplicate = {
+            "first": {"uuid": "same", "date": datetime(2024, 1, 1)},
+            "second": {"uuid": "same", "date": datetime(2024, 1, 2)},
+        }
+        duplicate_quarantine = {}
+        self.assertEqual(migrate_store(duplicate, duplicate_quarantine), 2)
+        self.assertEqual(len(duplicate), 1)
+        self.assertEqual(len(duplicate_quarantine), 1)
+
+        annotations = {LOG_KEY: {"bad": object()}}
+        self.assertEqual(migrate_annotations(annotations), 1)
+        self.assertIn(QUARANTINE_KEY, annotations)
+
+        site = SimpleNamespace(portal_catalog=None)
+        with patch(
+            "Products.CMFCore.utils.getToolByName", side_effect=RuntimeError("catalog")
+        ):
+            self.assertEqual(_site_objects(site), [site])
+        failing_catalog = SimpleNamespace(
+            unrestrictedSearchResults=lambda: (_ for _ in ()).throw(
+                RuntimeError("search")
+            )
+        )
+        failing_site = SimpleNamespace(portal_catalog=failing_catalog)
+        self.assertEqual(_site_objects(failing_site), [failing_site])
+        bad_brain = SimpleNamespace(
+            _unrestrictedGetObject=lambda: (_ for _ in ()).throw(RuntimeError("object"))
+        )
+        catalog = SimpleNamespace(unrestrictedSearchResults=lambda: [bad_brain])
+        bad_brain_site = SimpleNamespace(portal_catalog=catalog)
+        self.assertEqual(_site_objects(bad_brain_site), [bad_brain_site])
+
+        duplicate_site = SimpleNamespace()
+        brain = SimpleNamespace(_unrestrictedGetObject=lambda: duplicate_site)
+        duplicate_site.portal_catalog = SimpleNamespace(
+            unrestrictedSearchResults=lambda: [brain]
+        )
+        with patch(
+            "zopyx.plone.persistentlogger.migrations.v1.IAnnotations", return_value={}
+        ):
+            self.assertEqual(migrate_site(duplicate_site), 0)
+        with patch(
+            "zopyx.plone.persistentlogger.migrations.v1.migrate_site"
+        ) as migrate:
+            upgrade_to_3(duplicate_site)
+        migrate.assert_called_once_with(duplicate_site)
+
+
+class SerializationEdgeTests(unittest.TestCase):
+    def test_serialization_date_and_schema_fallbacks(self):
+        from ..serialization import (
+            _canonical_datetime,
+            canonical_event_date,
+            canonical_event_payload,
+        )
+
+        self.assertEqual(
+            _canonical_datetime(datetime(2026, 1, 2, tzinfo=UTC)).tzinfo, UTC
+        )
+        self.assertEqual(_canonical_datetime(datetime(2026, 1, 2).date()).day, 2)
+        self.assertEqual(_canonical_datetime("2026-01-02T03:04:05Z").year, 2026)
+        self.assertEqual(
+            _canonical_datetime("not-a-date"), datetime.min.replace(tzinfo=UTC)
+        )
+        self.assertEqual(
+            _canonical_datetime(object()), datetime.min.replace(tzinfo=UTC)
+        )
+        self.assertEqual(
+            canonical_event_date(SimpleNamespace(created_at="invalid")),
+            datetime.min.replace(tzinfo=UTC),
+        )
+        payload = canonical_event_payload({"event_id": "e", "schema_version": "bad"})
+        self.assertEqual(payload["schema_version"], 1)
+
+
+class BaseStorageEdgeTests(unittest.TestCase):
+    def test_base_integrity_and_lifecycle_guards(self):
+        from ..models import DeletionPreview, LogEvent
+        from ..storage.base import (
+            BaseLogStorage,
+            StorageIntegrityError,
+            _verify_chain,
+            new_event_entry,
+            selection_digest,
+        )
+        from .test_storage_base import StubStorage
+
+        with self.assertRaisesRegex(NotImplementedError, ""):
+            StubStorage()._remove_all_events()
+        self.assertEqual(BaseLogStorage._chain_tail([]), "")
+        self.assertEqual(
+            BaseLogStorage._chain_tail(
+                [{"uuid": "x", "previous_digest": "missing", "integrity_digest": "a"}]
+            ),
+            "",
+        )
+        duplicate_previous = [
+            {"uuid": "a", "previous_digest": "", "integrity_digest": "a"},
+            {"uuid": "b", "previous_digest": "", "integrity_digest": "b"},
+        ]
+        self.assertEqual(len(BaseLogStorage._chain_order(duplicate_previous)), 2)
+        disconnected = [
+            {"uuid": "a", "previous_digest": "", "integrity_digest": "a"},
+            {"uuid": "b", "previous_digest": "missing", "integrity_digest": "b"},
+        ]
+        self.assertEqual(len(BaseLogStorage._chain_order(disconnected)), 2)
+        self.assertFalse(
+            _verify_chain([{"uuid": "x"}], lambda _: (_ for _ in ()).throw(TypeError()))
+        )
+        self.assertFalse(
+            _verify_chain(
+                [{"uuid": "x", "integrity_digest": "a"}], lambda _: "a", "other"
+            )
+        )
+
+        class HeadStorage(StubStorage):
+            def __init__(self, entries=(), head=""):
+                super().__init__(entries)
+                self.head = head
+
+            def _load_event_head(self):
+                return self.head
+
+        empty = HeadStorage(head="orphan")
+        with self.assertRaisesRegex(StorageIntegrityError, "no event record"):
+            empty.append(LogEvent(comment="orphan", created_at=datetime.now(UTC)))
+        event = LogEvent(comment="head mismatch", created_at=datetime.now(UTC))
+        with self.assertRaisesRegex(ValueError, "positive"):
+            new_event_entry(event, sequence=0)
+        entry = new_event_entry(event)
+        mismatch = HeadStorage([entry], head="wrong")
+        with self.assertRaisesRegex(StorageIntegrityError, "does not match"):
+            mismatch.append(LogEvent(comment="next", created_at=datetime.now(UTC)))
+        invalid = StubStorage([dict(entry, integrity_digest="bad")])
+        self.assertEqual(invalid.last_digest(), "")
+        self.assertEqual(invalid.cleanup_expired_previews(), 0)
+        self.assertEqual(invalid.remove_object(), 0)
+
+        now = datetime(2026, 1, 1, tzinfo=UTC)
+        event_id = uuid4()
+        preview = DeletionPreview(
+            uuid4(),
+            "stub",
+            now,
+            (event_id,),
+            selection_digest("stub", (event_id,), now),
+            expires_at=now,
+        )
+
+        class PreviewStorage(StubStorage):
+            def _load_preview(self, operation_id):
+                return preview
+
+        storage = PreviewStorage()
+        with self.assertRaisesRegex(ValueError, "missing or stale"):
+            storage._validated_preview(preview, now + timedelta(seconds=1))
+        broken = StubStorage(
+            [{"uuid": "bad", "previous_digest": "x", "integrity_digest": "y"}]
+        )
+        broken_preview = DeletionPreview(
+            uuid4(), "stub", now, (), selection_digest("stub", (), now)
+        )
+        broken._load_preview = lambda _: broken_preview
+        with self.assertRaisesRegex(StorageIntegrityError, "unverifiable"):
+            broken.delete_preview(broken_preview, "valid retention cleanup")
+        with self.assertRaisesRegex(ValueError, "at least 10"):
+            storage.delete_and_journal(preview, "short", "actor")
+
+
+def test_suite():
+    """Register edge coverage with the canonical Zope test runner."""
+    loader = unittest.defaultTestLoader
+    return unittest.TestSuite(
+        loader.loadTestsFromTestCase(test_case)
+        for test_case in (
+            GovernanceEdgeTests,
+            IdentityEdgeTests,
+            MigrationEdgeTests,
+            BrowserAPIEdgeTests,
+            SerializationEdgeTests,
+            BaseStorageEdgeTests,
+        )
+    )

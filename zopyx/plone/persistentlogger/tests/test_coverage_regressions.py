@@ -12,7 +12,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 from uuid import UUID, uuid4
 
-from sqlmodel import SQLModel, create_engine
+from sqlmodel import Session, SQLModel, create_engine
 
 from .. import file_logger
 from ..browser.retention import (
@@ -27,6 +27,8 @@ from ..models import DeletionPreview, LogEvent, RetentionPolicy
 from ..serialization import sanitized_details
 from ..storage.base import (
     BaseLogStorage,
+    StorageConfigurationError,
+    StorageIntegrityError,
     _verify_chain,
     event_digest,
     new_event_entry,
@@ -35,12 +37,21 @@ from ..storage.base import (
 )
 from ..storage.query import SortSpec
 from ..storage.rdbms import (
+    PreviewRecord,
     SQLRepository,
     get_engine,
     order_by_spec,
 )
 from ..storage.zodb import LOG_KEY, PREVIEW_KEY, AnnotationRepository
 from .postgres import database_url, stop_container
+from .test_governance_edges import (
+    BaseStorageEdgeTests,
+    BrowserAPIEdgeTests,
+    GovernanceEdgeTests,
+    IdentityEdgeTests,
+    MigrationEdgeTests,
+    SerializationEdgeTests,
+)
 from .test_storage_base import StubStorage
 from .test_storage_rdbms import Context as RdbmsContext
 from .test_storage_zodb import AnnotationStore
@@ -404,6 +415,90 @@ class RdbmsPrimitiveRegressionTests(unittest.TestCase):
         )
         self.assertEqual(self.repository._consume_preview(preview), preview)
 
+    def test_rdbms_validation_recovery_and_removal_paths(self):
+        from ..storage.rdbms import ChainHeadRecord, _pool_value
+
+        with patch.dict("os.environ", {"PERSISTENT_LOGGER_TEST_POOL": "bad"}):
+            with self.assertRaisesRegex(
+                StorageConfigurationError, "must be an integer"
+            ):
+                _pool_value("PERSISTENT_LOGGER_TEST_POOL", 1)
+        with patch.dict("os.environ", {"PERSISTENT_LOGGER_TEST_POOL": "-1"}):
+            with self.assertRaisesRegex(
+                StorageConfigurationError, "must not be negative"
+            ):
+                _pool_value("PERSISTENT_LOGGER_TEST_POOL", 1)
+
+        event = LogEvent(comment="head", created_at=datetime(2026, 1, 1, tzinfo=UTC))
+        self.repository.append(event)
+        with Session(self.engine) as session, session.begin():
+            head = session.get(ChainHeadRecord, self.repository.uid)
+            head.event_digest = "wrong"
+        with self.assertRaisesRegex(StorageIntegrityError, "does not match"):
+            self.repository.append(
+                LogEvent(comment="next", created_at=datetime(2026, 1, 2, tzinfo=UTC))
+            )
+        self.repository._reset_event_head()
+        self.assertEqual(
+            self.repository._load_event_head(),
+            event_digest(self.repository.events()[0]),
+        )
+        with self.assertRaisesRegex(ValueError, "does not exist"):
+            self.repository._rewrite_event(
+                {"event_id": str(uuid4()), "created_at": datetime.now(UTC)}
+            )
+        self.repository._remove_all_events()
+        self.assertEqual(self.repository.events(), [])
+
+        preview_record = PreviewRecord(
+            operation_id=str(uuid4()),
+            object_uid=self.repository.uid,
+            cutoff=datetime(2026, 1, 1),
+            event_ids=None,
+            selection_digest="selection",
+            expires_at=None,
+        )
+        preview = self.repository._preview_from_record(preview_record)
+        self.assertEqual(preview.event_ids, ())
+        self.assertIsNone(preview.expires_at)
+
+        removable = SQLRepository(RdbmsContext("removable"), engine=self.engine)
+        removable.append(LogEvent(comment="remove", created_at=datetime.now(UTC)))
+        removable.record_governance("inspect", "actor", "remove rows")
+        removable.set_policy(RetentionPolicy(enabled=True))
+        removable.preview_delete(RetentionPolicy(), datetime.now(UTC))
+        self.assertGreater(removable.remove_object(), 0)
+        self.assertEqual(removable.events(), [])
+        self.assertEqual(removable.journal(), [])
+
+        missing_repo = SQLRepository(
+            RdbmsContext("missing-preview"), engine=self.engine
+        )
+        now = datetime(2026, 1, 1, tzinfo=UTC)
+        missing_preview = missing_repo.preview_delete(RetentionPolicy(), now)
+        self.assertEqual(
+            missing_repo._consume_preview(missing_preview), missing_preview
+        )
+        with self.assertRaisesRegex(ValueError, "missing or stale"):
+            missing_repo.delete_and_journal(
+                missing_preview, "valid journal reason", "actor", now
+            )
+        mismatch_preview = missing_repo.preview_delete(RetentionPolicy(), now)
+        mismatch = DeletionPreview(
+            mismatch_preview.operation_id,
+            mismatch_preview.object_uid,
+            mismatch_preview.cutoff,
+            mismatch_preview.event_ids,
+            "wrong",
+            mismatch_preview.expires_at,
+        )
+        with self.assertRaisesRegex(ValueError, "missing or stale"):
+            missing_repo.delete_and_journal(
+                mismatch, "valid journal reason", "actor", now
+            )
+        with self.assertRaisesRegex(ValueError, "at least 10"):
+            missing_repo.delete_and_journal(mismatch_preview, "short", "actor")
+
 
 class ZodbPrimitiveRegressionTests(unittest.TestCase):
     def setUp(self):
@@ -472,6 +567,49 @@ class ZodbPrimitiveRegressionTests(unittest.TestCase):
         self.assertEqual(self.repository._consume_preview(preview), preview)
         self.assertIn(PREVIEW_KEY, self.store)
 
+    def test_zodb_transaction_rollback_and_cleanup_paths(self):
+        from persistent.mapping import PersistentMapping
+
+        from ..storage.zodb import CHAIN_HEAD_KEY
+
+        now = datetime(2026, 1, 1, tzinfo=UTC)
+        preview = DeletionPreview(
+            uuid4(), self.repository.object_uid(), now, (), "selection"
+        )
+        savepoint = MagicMock()
+        with (
+            patch(
+                "zopyx.plone.persistentlogger.storage.zodb.transaction.savepoint",
+                return_value=savepoint,
+            ),
+            patch(
+                "zopyx.plone.persistentlogger.storage.zodb.BaseLogStorage.delete_and_journal",
+                side_effect=RuntimeError("journal"),
+            ),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "journal"):
+                self.repository.delete_and_journal(
+                    preview, "valid journal reason", "actor"
+                )
+        savepoint.rollback.assert_called_once_with()
+
+        event_id = str(uuid4())
+        self.store[LOG_KEY] = AnnotationStore(
+            {"legacy": {"event_id": event_id, "uuid": event_id}}
+        )
+        self.store[CHAIN_HEAD_KEY] = {"event_digest": "digest"}
+        self.repository._remove_all_events()
+        self.assertEqual(self.store[LOG_KEY], {})
+        self.assertNotIn(CHAIN_HEAD_KEY, self.store)
+
+        expired = DeletionPreview(
+            uuid4(), self.repository.object_uid(), now, (), "selection", expires_at=now
+        )
+        previews = PersistentMapping({"expired": expired})
+        self.store[PREVIEW_KEY] = previews
+        self.assertEqual(self.repository.cleanup_expired_previews(now), 1)
+        self.assertEqual(previews, {})
+
 
 class PostgresHelperRegressionTests(unittest.TestCase):
     def setUp(self):
@@ -528,6 +666,12 @@ def test_suite():
         RdbmsPrimitiveRegressionTests,
         ZodbPrimitiveRegressionTests,
         PostgresHelperRegressionTests,
+        GovernanceEdgeTests,
+        IdentityEdgeTests,
+        MigrationEdgeTests,
+        BrowserAPIEdgeTests,
+        SerializationEdgeTests,
+        BaseStorageEdgeTests,
     ):
         suite.addTest(loader.loadTestsFromTestCase(test_case))
     return suite
