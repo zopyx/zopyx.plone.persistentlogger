@@ -19,6 +19,7 @@ from __future__ import annotations
 from .base import (
     BaseLogStorage,
     StorageConfigurationError,
+    StorageIntegrityError,
     event_date,
     event_digest,
     event_id_of,
@@ -87,6 +88,7 @@ __all__ = [
     "SearchResult",
     "SortSpec",
     "StorageConfigurationError",
+    "StorageIntegrityError",
     "columns_json",
     "default_sort",
     "parse_filter_model",

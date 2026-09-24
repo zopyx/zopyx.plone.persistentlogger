@@ -11,6 +11,7 @@ from uuid import UUID, uuid4
 from sqlmodel import Session
 
 from ..models import DeletionPreview, LogEvent, RetentionPolicy
+from ..storage.base import verify_event_chain
 from ..storage.rdbms import EventRecord, SQLRepository
 from ..storage.zodb import AnnotationRepository
 from .postgres import database_url
@@ -57,15 +58,20 @@ class StorageRegressionMixin:
 
         entries = self.repository.events()
         self.assertEqual(
-            [entry["comment"] for entry in entries],
-            ["concurrent-first", "concurrent-second"],
+            {entry["comment"] for entry in entries},
+            {"concurrent-first", "concurrent-second"},
         )
-        self.assertEqual(
-            len({entry["previous_digest"] for entry in entries}), 2
+        self.assertEqual(len({entry["previous_digest"] for entry in entries}), 2)
+        self.assertTrue(verify_event_chain(entries))
+        tail = next(
+            entry
+            for entry in entries
+            if not any(
+                entry["integrity_digest"] == successor["previous_digest"]
+                for successor in entries
+            )
         )
-        self.assertEqual(entries[0]["previous_digest"], "")
-        self.assertEqual(entries[1]["previous_digest"], entries[0]["integrity_digest"])
-        self.assertEqual(self.repository.last_digest(), entries[-1]["integrity_digest"])
+        self.assertEqual(self.repository.last_digest(), tail["integrity_digest"])
 
     def test_backdated_append_preserves_prior_digests(self):
         """A backdated append never rewrites the existing chain."""

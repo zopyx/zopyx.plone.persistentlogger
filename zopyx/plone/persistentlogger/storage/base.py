@@ -56,6 +56,7 @@ from .records import event_date, event_id_of, severity_value
 __all__ = [
     "BaseLogStorage",
     "StorageConfigurationError",
+    "StorageIntegrityError",
     "event_date",
     "event_digest",
     "event_id_of",
@@ -74,6 +75,10 @@ __all__ = [
 
 class StorageConfigurationError(RuntimeError):
     """Raised when the configured storage backend cannot be used."""
+
+
+class StorageIntegrityError(ValueError):
+    """Raised when an operation would extend or mutate a broken chain."""
 
 
 _locks: dict[tuple[str, str], RLock] = {}
@@ -129,7 +134,7 @@ def governance_digest(entry: dict[str, Any]) -> str:
     from hashlib import sha256
 
     return sha256(
-        canonical_json(_governance_payload(entry)).encode("utf-8")
+        canonical_json(_governance_payload(entry), redact=False).encode("utf-8")
     ).hexdigest()
 
 
@@ -144,12 +149,15 @@ def _verify_chain(
         return False
     if len({event_id_of(record) for record in records}) != len(records):
         return False
-    if any(
-        not record.get("integrity_digest")
-        or digest(record) != record.get("integrity_digest")
-        for record in records
-    ):
-        return False
+    for record in records:
+        try:
+            digest_value = digest(record)
+        except (TypeError, ValueError):
+            return False
+        if not record.get("integrity_digest") or digest_value != record.get(
+            "integrity_digest"
+        ):
+            return False
     first = [record for record in records if not record.get("previous_digest")]
     if len(first) != 1:
         return False
@@ -480,10 +488,23 @@ class BaseLogStorage(ABC):
     def append(self, event: LogEvent) -> dict[str, Any]:
         """Append one event and return the stored record."""
         with self._lock("events"):
-            if self.get(event.event_id) is not None:
+            records = [
+                entry for entry in self._load_events() if isinstance(entry, dict)
+            ]
+            if any(event_id_of(entry) == str(event.event_id) for entry in records):
                 raise ValueError(f"event id {event.event_id} already exists")
-            previous = self.last_digest()
-            entry = new_event_entry(event, previous, next_sequence(self._load_events()))
+            if records and not verify_event_chain(records):
+                raise StorageIntegrityError(
+                    "cannot append to an unverifiable event chain; migrate or repair it"
+                )
+            previous = self._load_event_head() or self._chain_tail(records)
+            if records and previous != self._chain_tail(records):
+                raise StorageIntegrityError(
+                    "persisted event head does not match the event chain"
+                )
+            if not records and self._load_event_head():
+                raise StorageIntegrityError("persisted event head has no event record")
+            entry = new_event_entry(event, previous, next_sequence(records))
             self._store_event(entry)
             self._store_event_head(entry)
             return entry
@@ -499,7 +520,14 @@ class BaseLogStorage(ABC):
 
     def last_digest(self) -> str:
         """Return the integrity digest of the append-only event head."""
-        return self._load_event_head() or self._chain_tail(self._load_events())
+        records = [entry for entry in self._load_events() if isinstance(entry, dict)]
+        if not records:
+            return ""
+        if not verify_event_chain(records):
+            return ""
+        tail = self._chain_tail(records)
+        head = self._load_event_head()
+        return tail if not head or head == tail else ""
 
     # ------------------------------------------------------------------
     # retention
@@ -594,12 +622,24 @@ class BaseLogStorage(ABC):
             raise ValueError("deletion reason must contain at least 10 characters")
         with self._lock("events"):
             stored = self._validated_preview(preview, now)
-            consumed = self._consume_preview(stored)
-            if consumed is None:
-                raise ValueError("deletion preview is missing or stale")
             records = [
                 entry for entry in self._load_events() if isinstance(entry, dict)
             ]
+            if (
+                records
+                and any(
+                    entry.get("previous_digest") or entry.get("integrity_digest")
+                    for entry in records
+                )
+                and not verify_event_chain(records)
+            ):
+                raise StorageIntegrityError(
+                    "cannot delete from an unverifiable event chain; "
+                    "migrate or repair it"
+                )
+            consumed = self._consume_preview(stored)
+            if consumed is None:
+                raise ValueError("deletion preview is missing or stale")
             selected = {str(event_id) for event_id in stored.event_ids}
             deleted, missing = self._delete_events(stored.event_ids)
             if deleted:
@@ -632,12 +672,24 @@ class BaseLogStorage(ABC):
             raise ValueError("deletion reason must contain at least 10 characters")
         with self._lock("events"), self._lock("governance"):
             stored = self._validated_preview(preview, now)
-            consumed = self._consume_preview(stored)
-            if consumed is None:
-                raise ValueError("deletion preview is missing or stale")
             records = [
                 entry for entry in self._load_events() if isinstance(entry, dict)
             ]
+            if (
+                records
+                and any(
+                    entry.get("previous_digest") or entry.get("integrity_digest")
+                    for entry in records
+                )
+                and not verify_event_chain(records)
+            ):
+                raise StorageIntegrityError(
+                    "cannot delete from an unverifiable event chain; "
+                    "migrate or repair it"
+                )
+            consumed = self._consume_preview(stored)
+            if consumed is None:
+                raise ValueError("deletion preview is missing or stale")
             selected = {str(event_id) for event_id in stored.event_ids}
             deleted, missing = self._delete_events(stored.event_ids)
             survivor_digest = ""

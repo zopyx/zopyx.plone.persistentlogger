@@ -58,9 +58,15 @@ def redact_sensitive(value: Any) -> Any:
     return value
 
 
-def normalize_details(value: Any) -> Any:
-    """Redact and normalize a value to the package's JSON-compatible subset."""
-    value = redact_sensitive(value)
+def normalize_details(value: Any, *, redact: bool = True) -> Any:
+    """Normalize a value to the package's JSON-compatible subset.
+
+    Public storage/export values are redacted.  Integrity verification uses
+    ``redact=False`` so a changed value already present in a stored record is
+    not hidden by applying redaction a second time.
+    """
+    if redact:
+        value = redact_sensitive(value)
     if value is None or isinstance(value, (str, bool, int)):
         return value
     if isinstance(value, float):
@@ -74,10 +80,10 @@ def normalize_details(value: Any) -> Any:
         for key, item in value.items():
             if not isinstance(key, str):
                 raise ValueError("details mapping keys must be strings")
-            normalized[key] = normalize_details(item)
+            normalized[key] = normalize_details(item, redact=redact)
         return normalized
     if isinstance(value, (list, tuple, set, frozenset)):
-        return [normalize_details(item) for item in value]
+        return [normalize_details(item, redact=redact) for item in value]
     raise ValueError(
         f"details must contain only JSON-compatible values (got {type(value).__name__})"
     )
@@ -95,6 +101,11 @@ def sanitized_details(value: Any) -> Any:
     return normalized
 
 
+def integrity_details(value: Any) -> Any:
+    """Normalize stored details without redacting their current values."""
+    return normalize_details(value, redact=False)
+
+
 def json_default(value: Any) -> Any:
     if isinstance(value, (datetime, date)):
         return value.isoformat()
@@ -107,9 +118,10 @@ def json_default(value: Any) -> Any:
     raise TypeError(f"value is not JSON serializable: {type(value).__name__}")
 
 
-def canonical_json(value: Any) -> str:
+def canonical_json(value: Any, *, redact: bool = True) -> str:
+    """Serialize deterministically, redacting at public boundaries by default."""
     return json.dumps(
-        redact_sensitive(value),
+        redact_sensitive(value) if redact else value,
         default=json_default,
         ensure_ascii=False,
         sort_keys=True,
@@ -134,8 +146,6 @@ def event_row(event: Any) -> dict[str, Any]:
             "schema_version": event.get("schema_version", 0),
             "integrity_digest": event.get("integrity_digest"),
         }
-        if event.get("sequence") is not None:
-            row["sequence"] = int(event["sequence"])
         return row
     return {
         "event_id": str(event.event_id),
@@ -241,7 +251,7 @@ def canonical_event_payload(
         "target": str(target or ""),
         "comment": str(comment or ""),
         "info_url": None if info_url is None else str(info_url),
-        "details": sanitized_details(details),
+        "details": integrity_details(details),
         "schema_version": normalized_schema_version,
         "previous_digest": str(previous or ""),
         **(
@@ -257,7 +267,9 @@ def event_digest(event: Any, previous_digest: str | None = None) -> str:
     import hashlib
 
     payload = canonical_event_payload(event, previous_digest)
-    return hashlib.sha256(canonical_json(payload).encode("utf-8")).hexdigest()
+    return hashlib.sha256(
+        canonical_json(payload, redact=False).encode("utf-8")
+    ).hexdigest()
 
 
 def export_rows(events: list[Any]) -> list[dict[str, Any]]:

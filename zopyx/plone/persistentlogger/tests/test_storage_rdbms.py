@@ -10,15 +10,15 @@ from __future__ import annotations
 
 import unittest
 from concurrent.futures import ThreadPoolExecutor
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from tempfile import TemporaryDirectory
 from uuid import uuid4
 
 from sqlalchemy import inspect
-from sqlmodel import SQLModel, create_engine, select
+from sqlmodel import Session, SQLModel, create_engine, select
 
 from ..models import LogEvent, RetentionPolicy
-from ..storage.base import verify_event_chain
+from ..storage.base import StorageIntegrityError, verify_event_chain
 from ..storage.rdbms import (
     EventRecord,
     GovernanceRecord,
@@ -245,6 +245,29 @@ class RdbmsSQLiteHardeningTests(unittest.TestCase):
         self.assertEqual(
             {row["uuid"] for row in returned}, {row["uuid"] for row in stored}
         )
+
+    def test_append_rejects_a_missing_predecessor(self):
+        repository = SQLRepository(Context("missing-predecessor"), engine=self.engine)
+        first = repository.append(LogEvent(comment="first"))
+        repository.append(LogEvent(comment="second"))
+        with Session(self.engine) as session, session.begin():
+            session.delete(session.get(EventRecord, (first["uuid"], repository.uid)))
+        with self.assertRaises(StorageIntegrityError):
+            repository.append(LogEvent(comment="third"))
+
+    def test_delete_then_verify_relinks_survivors(self):
+        now = datetime(2026, 1, 1, tzinfo=UTC)
+        repository = SQLRepository(Context("delete-verify"), engine=self.engine)
+        repository.append(
+            LogEvent(comment="expired", created_at=now - timedelta(days=400))
+        )
+        repository.append(LogEvent(comment="survivor", created_at=now))
+        preview = repository.preview_delete(
+            RetentionPolicy(enabled=True, older_than_days=365), now
+        )
+        result = repository.delete_preview(preview, "retention policy cleanup", now)
+        self.assertEqual((result.deleted, result.missing), (1, 0))
+        self.assertTrue(verify_event_chain(repository.events()))
 
 
 def test_suite():

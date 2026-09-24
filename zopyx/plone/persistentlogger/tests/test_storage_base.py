@@ -14,6 +14,7 @@ from unittest.mock import patch
 from ..models import LogEvent, RetentionPolicy, Severity
 from ..storage.base import (
     BaseLogStorage,
+    StorageIntegrityError,
     event_digest,
     governance_digest,
     new_event_entry,
@@ -145,7 +146,32 @@ class BaseLogStorageTests(unittest.TestCase):
         tampered = dict(entry, comment="changed")
         self.assertFalse(verify_event_chain([tampered]))
 
-    def test_governance_digest_covers_action_reason_and_payload(self):
+    def test_integrity_digest_does_not_redact_stored_values(self):
+        event = LogEvent(
+            comment="canonical details",
+            created_at=datetime(2026, 1, 1, tzinfo=UTC),
+            details={"password": "redacted before storage"},
+        )
+        entry = new_event_entry(event)
+        first = dict(entry, details={"password": "first"})
+        second = dict(entry, details={"password": "second"})
+        self.assertNotEqual(event_digest(first), event_digest(second))
+
+    def test_append_rejects_a_missing_predecessor(self):
+        first = new_event_entry(
+            LogEvent(comment="first", created_at=datetime(2026, 1, 1, tzinfo=UTC))
+        )
+        second = new_event_entry(
+            LogEvent(comment="second", created_at=datetime(2026, 1, 2, tzinfo=UTC)),
+            first["integrity_digest"],
+            2,
+        )
+        storage = StubStorage([second])
+        with self.assertRaises(StorageIntegrityError):
+            storage.append(
+                LogEvent(comment="third", created_at=datetime(2026, 1, 3, tzinfo=UTC))
+            )
+
         entry = new_governance_entry(
             "retention_delete", "manager", "policy cleanup", "", deleted=2
         )

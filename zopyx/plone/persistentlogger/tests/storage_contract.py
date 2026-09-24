@@ -16,7 +16,11 @@ from uuid import UUID, uuid4
 
 from ..models import DeletionPreview, LogEvent, RetentionPolicy, Severity
 from ..serialization import canonical_json
-from ..storage.base import verify_event_chain, verify_governance_chain
+from ..storage.base import (
+    StorageIntegrityError,
+    verify_event_chain,
+    verify_governance_chain,
+)
 from ..storage.query import ConditionGroup, SortSpec, parse_filter_model
 
 
@@ -166,6 +170,14 @@ class StorageContractMixin:
         self.assertEqual(first["previous_digest"], "")
         self.assertEqual(second["previous_digest"], first["integrity_digest"])
         self.assertTrue(verify_event_chain(self.repository.events()))
+
+    def test_append_rejects_a_missing_predecessor(self):
+        first = self.append(self.now, "first")
+        self.append(self.now + timedelta(days=1), "second")
+        deleted, missing = self.repository._delete_events((UUID(first["uuid"]),))
+        self.assertEqual((deleted, missing), (1, 0))
+        with self.assertRaises(StorageIntegrityError):
+            self.append(self.now + timedelta(days=2), "third")
 
     def test_events_are_ordered_by_timestamp(self):
         newest = self.append(self.now, "newest")

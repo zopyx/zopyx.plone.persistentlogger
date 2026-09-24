@@ -46,6 +46,7 @@ from ..serialization import canonical_json
 from .base import (
     BaseLogStorage,
     StorageConfigurationError,
+    StorageIntegrityError,
     event_date,
     event_digest,
     event_id_of,
@@ -55,6 +56,7 @@ from .base import (
     object_uid,
     selection_digest,
     severity_value,
+    verify_event_chain,
 )
 from .query import (
     DATE,
@@ -291,7 +293,7 @@ def event_to_row(entry: dict[str, Any]) -> dict[str, Any]:
         "target": str(entry.get("target", "") or ""),
         "comment": str(entry.get("comment", "") or ""),
         "info_url": entry.get("info_url"),
-        "details": entry.get("details_raw", entry.get("details")),
+        "details": entry.get("details"),
         "schema_version": int(entry.get("schema_version", 1) or 1),
         "sequence": entry.get("sequence"),
         "previous_digest": str(entry.get("previous_digest", "") or ""),
@@ -544,10 +546,21 @@ class SQLRepository(BaseLogStorage):
                 existing = session.scalars(
                     select(EventRecord).where(EventRecord.object_uid == self.uid)
                 ).all()
+                existing_entries = [event_to_entry(row) for row in existing]
+                if existing_entries and not verify_event_chain(existing_entries):
+                    raise StorageIntegrityError(
+                        "cannot append to an unverifiable event chain; "
+                        "migrate or repair it"
+                    )
+                expected_tail = self._chain_tail(existing_entries)
+                if head.event_digest != expected_tail:
+                    raise StorageIntegrityError(
+                        "persisted event head does not match the event chain"
+                    )
                 entry = new_event_entry(
                     event,
-                    head.event_digest,
-                    next_sequence([event_to_entry(row) for row in existing]),
+                    expected_tail,
+                    next_sequence(existing_entries),
                 )
                 session.add(EventRecord(object_uid=self.uid, **event_to_row(entry)))
                 head.event_id = event_id
@@ -670,6 +683,23 @@ class SQLRepository(BaseLogStorage):
         rows = session.scalars(
             select(EventRecord).where(EventRecord.object_uid == self.uid)
         ).all()
+        existing_entries = [event_to_entry(row) for row in rows]
+        if (
+            existing_entries
+            and any(
+                entry.get("previous_digest") or entry.get("integrity_digest")
+                for entry in existing_entries
+            )
+            and not verify_event_chain(existing_entries)
+        ):
+            raise StorageIntegrityError(
+                "cannot delete from an unverifiable event chain; migrate or repair it"
+            )
+        expected_tail = self._chain_tail(existing_entries)
+        if head.event_digest != expected_tail:
+            raise StorageIntegrityError(
+                "persisted event head does not match the event chain"
+            )
         selected = {str(event_id) for event_id in event_ids}
         keys = list(selected)
         result = (
