@@ -318,7 +318,9 @@ For an object at ``http://host/path/to/object`` the current views are:
     message.
 
 ``@@logger-entries``
-    JSON representation of all entries (unpaged), kept for scripts.
+    Deprecated, bounded JSON compatibility endpoint. Use
+    ``@@persistent-log-data`` for paged results; requests over its limit are
+    rejected.
 
 ``@@persistent-log-export``
     Export des objektbezogenen Logs. Das gewünschte Format wird mit
@@ -326,7 +328,8 @@ For an object at ``http://host/path/to/object`` the current views are:
     gewählt.
 
 ``@@persistent-log-retention-preview``
-    Erzeugt eine serverseitige Preview der ältesten löschbaren Einträge.
+    Creates a server-side preview through a CSRF-protected POST request;
+    malformed inputs receive structured HTTP 400 responses.
 
 ``@@persistent-log-retention-delete``
     Führt eine bestätigte, CSRF-geschützte Löschung per POST aus.
@@ -351,9 +354,9 @@ Die frühere GET-basierte ``@@persistent-log-clear``-Route wurde entfernt. Das
 Löschen erfolgt ausschließlich über Preview, Bestätigung, Begründung und die
 begrenzte Retention-Operation.
 
-The existing log table uses ``Modify portal content``. The new export and
-retention administration routes use ``Manage portal`` and are restricted to
-Plone Managers.
+The existing log view uses the dedicated ``View audit log`` permission. The
+new export and retention administration routes use ``Manage portal`` and are
+restricted to Plone Managers.
 
 Audit logging
 ~~~~~~~~~~~~~

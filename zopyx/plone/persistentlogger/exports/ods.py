@@ -14,7 +14,7 @@ def render_ods(rows: list[dict[str, Any]]) -> bytes:
         from odf.table import Table, TableCell, TableRow
         from odf.text import P
     except ImportError as exc:
-        raise RuntimeError("ODS export requires the ods extra") from exc
+        raise RuntimeError("ODS export requires the 'ods' extra (odfpy)") from exc
     document = OpenDocumentSpreadsheet()
     table = Table(name="events")
     header = TableRow()

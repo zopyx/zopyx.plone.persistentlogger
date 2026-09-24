@@ -13,27 +13,77 @@ from Products.Five.browser import BrowserView
 from Products.Five.browser.pagetemplatefile import ViewPageTemplateFile
 
 from ..exports import export_events
-from ..models import DeletionPreview, RetentionPolicy
+from ..models import DeletionPreview, ExportRequest, RetentionPolicy
 from ..retention import RetentionService
 from ..serialization import json_default
 from ..storage import BaseLogStorage, get_repository
+
+MAX_EXPORT_ENTRIES = 100_000
+
+
+def _request_value(request, name: str, default: object = None) -> object:
+    """Read a value from either a form body or the query string."""
+    form = getattr(request, "form", {})
+    value = form.get(name, default)
+    if value is None:
+        getter = getattr(request, "get", None)
+        if getter is not None:
+            value = getter(name, default)
+    return value
+
+
+def _error_response(request, status: int, code: str, message: str) -> str:
+    """Return a small, safe JSON error response for browser callers."""
+    response = getattr(request, "response", None)
+    if response is not None:
+        response.setStatus(status)
+        response.setHeader("Content-Type", "application/json")
+    return json.dumps({"error": {"code": code, "message": message}})
+
+
+def _integer(value: object, field: str) -> int:
+    """Parse a strict decimal form value."""
+    if value is None or value == "":
+        raise ValueError(f"{field} is required")
+    try:
+        return int(str(value))
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{field} must be an integer") from exc
 
 
 class Retention(BrowserView):
     """Preview and execute object-scoped retention operations."""
 
     def preview(self) -> str:
+        if self.request.method != "POST":
+            return _error_response(
+                self.request, 405, "method_not_allowed", "POST required"
+            )
+        CheckAuthenticator(self.request)
+        try:
+            raw_older = _request_value(self.request, "older_than_days")
+            raw_max = _request_value(self.request, "max_entries")
+            parsed_older = (
+                None if raw_older is None else _integer(raw_older, "older_than_days")
+            )
+            parsed_max = None if raw_max is None else _integer(raw_max, "max_entries")
+        except ValueError as exc:
+            return _error_response(self.request, 400, "invalid_number", str(exc))
         repository = get_repository(self.context)
-        configured = repository.policy()
-        policy = RetentionPolicy(
-            enabled=configured.enabled,
-            older_than_days=int(
-                self.request.form.get("older_than_days", configured.older_than_days)
-            ),
-            max_entries=int(
-                self.request.form.get("max_entries", configured.max_entries)
-            ),
-        )
+        try:
+            configured = repository.policy()
+            policy = RetentionPolicy(
+                enabled=configured.enabled,
+                older_than_days=(
+                    configured.older_than_days if parsed_older is None else parsed_older
+                ),
+                max_entries=(
+                    configured.max_entries if parsed_max is None else parsed_max
+                ),
+            )
+        except ValueError as exc:
+            code = "invalid_number" if "integer" in str(exc) else "invalid_policy"
+            return _error_response(self.request, 400, code, str(exc))
         preview = RetentionService(self.context, repository).preview(policy)
         return json.dumps(asdict(preview), default=json_default, ensure_ascii=False)
 
@@ -42,25 +92,49 @@ class Retention(BrowserView):
             self.request.response.setStatus(405)
             return "POST required"
         CheckAuthenticator(self.request)
-        operation_id = UUID(str(self.request.form["operation_id"]))
+        try:
+            operation_id = UUID(str(self.request.form.get("operation_id", "")))
+        except (TypeError, ValueError, AttributeError):
+            return _error_response(
+                self.request, 400, "invalid_uuid", "operation_id must be a valid UUID"
+            )
         repository = get_repository(self.context)
         preview = repository.get_preview(operation_id)
         if preview is None:
             self.request.response.setStatus(400)
             return "deletion preview is missing or stale"
         actor = plone.api.user.get_current().getUserName()
-        result = RetentionService(self.context, repository).execute(
-            preview, str(self.request.form.get("reason", "")), actor
-        )
+        try:
+            result = RetentionService(self.context, repository).execute(
+                preview, str(self.request.form.get("reason", "")), actor
+            )
+        except ValueError as exc:
+            return _error_response(self.request, 400, "invalid_reason", str(exc))
         return json.dumps(asdict(result), default=json_default)
 
 
 class Export(BrowserView):
     """Return one object log in a selected supported format."""
 
-    def __call__(self) -> bytes:
-        format_name = str(self.request.form.get("format", "json"))
-        data = export_events(list(get_repository(self.context).events()), format_name)
+    def __call__(self) -> bytes | str:
+        format_name = str(_request_value(self.request, "format", "json"))
+        try:
+            ExportRequest(format_name)
+        except ValueError as exc:
+            return _error_response(self.request, 400, "invalid_export", str(exc))
+        repository = get_repository(self.context)
+        result = repository.search(limit=MAX_EXPORT_ENTRIES + 1)
+        if result.total > MAX_EXPORT_ENTRIES:
+            return _error_response(
+                self.request,
+                413,
+                "export_limit",
+                "export exceeds the configured entry limit",
+            )
+        try:
+            data = export_events(list(result.rows), format_name)
+        except ValueError as exc:
+            return _error_response(self.request, 400, "invalid_export", str(exc))
         content_types = {
             "json": "application/json",
             "csv": "text/csv; charset=utf-8",

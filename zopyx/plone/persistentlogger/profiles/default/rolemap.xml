@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<rolemap>
+  <permissions>
+    <permission acquire="False" name="View audit log">
+      <role name="Manager" />
+    </permission>
+  </permissions>
+</rolemap>

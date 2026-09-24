@@ -24,7 +24,6 @@ classifiers = [
 dependencies = [
     "plone.api",
     "loguru",
-    "ods",
 ]
 
 [project.optional-dependencies]

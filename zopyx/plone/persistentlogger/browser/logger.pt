@@ -36,7 +36,7 @@
         tal:define="toLocalizedTime nocall:context/@@plone/toLocalizedTime">
 
       <div class="d-flex justify-content-between align-items-center mb-3">
-        <h2 class="mb-0" i18n:translate="">Logging</h2>
+        <h2 id="persistent-log-title" class="mb-0" i18n:translate="">Logging</h2>
         <div class="btn-group">
           <tal:manager condition="view/is_manager">
             <a class="btn btn-outline-secondary btn-sm"
@@ -89,18 +89,26 @@
       </div>
 
       <div class="d-flex flex-wrap gap-2 align-items-center mb-2">
+        <label class="visually-hidden" for="persistent-log-quick" i18n:translate="">Quick filter entries</label>
         <input type="search" id="persistent-log-quick" class="form-control form-control-sm"
                style="max-width: 22rem" placeholder="Quick filter…"
+               aria-label="Quick filter entries"
                i18n:attributes="placeholder" />
         <button type="button" id="persistent-log-reset" class="btn btn-outline-secondary btn-sm"
                 i18n:translate="">Reset filters</button>
-        <span id="persistent-log-status" class="small text-body-secondary ms-auto"></span>
+        <span id="persistent-log-status" class="small text-body-secondary ms-auto"
+              role="status" aria-live="polite" aria-atomic="true"></span>
+        <button type="button" id="persistent-log-retry" class="btn btn-outline-danger btn-sm"
+                hidden="hidden" i18n:translate="">Try again</button>
       </div>
 
       <!-- Server side rendering: paging, sorting and filtering happen in
            @@persistent-log-data, the browser only receives one page. -->
-      <div id="persistent-log-grid" class="ag-theme-quartz"
-           style="height: 70vh; width: 100%"></div>
+      <div class="persistent-log-grid-container" role="region"
+           aria-labelledby="persistent-log-title">
+        <div id="persistent-log-grid" class="ag-theme-quartz"
+             style="height: 70vh; width: 100%"></div>
+      </div>
 
       <script type="text/javascript"
               tal:content="structure python:'window.PERSISTENT_LOGGER_CONFIG = %s;' % view.grid_config()"></script>

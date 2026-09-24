@@ -63,7 +63,7 @@
         if (url.indexOf("http") !== 0) {
             url = window.location.origin + (url.charAt(0) === "/" ? "" : "/") + url;
         }
-        return '<a href="' + escapeHtml(url) + '">Info</a>';
+        return '<a href="' + escapeHtml(url) + '" aria-label="Open event information">Info</a>';
     }
 
     function buildColumnDefs(columns) {
@@ -108,7 +108,7 @@
         });
     }
 
-    function gridOptions(config, status) {
+    function gridOptions(config, status, retry) {
         return {
             columnDefs: buildColumnDefs(config.columns),
             rowModelType: "infinite",
@@ -127,13 +127,19 @@
             },
             datasource: {
                 getRows: function (params) {
-                    loadRows(params, config, status);
+                    loadRows(params, config, status, retry);
                 }
             }
         };
     }
 
-    function loadRows(params, config, status) {
+    function setRetryVisible(retry, visible) {
+        if (retry) {
+            retry.hidden = !visible;
+        }
+    }
+
+    function loadRows(params, config, status, retry) {
         var url = new URL(config.dataUrl, window.location.origin);
         var quick = document.getElementById(QUICK_ID);
         url.searchParams.set("startRow", params.startRow);
@@ -143,6 +149,8 @@
         if (quick && quick.value) {
             url.searchParams.set("quick", quick.value);
         }
+        setRetryVisible(retry, false);
+        showStatus(status, "Loading entries…", false);
         fetch(url.toString(), {
             headers: { Accept: "application/json" },
             credentials: "same-origin"
@@ -154,18 +162,27 @@
             })
             .then(function (result) {
                 if (!result.ok || result.data.error) {
-                    showStatus(status, result.data.error || "request failed", true);
+                    showStatus(status, "Could not load entries. Try again.", true);
+                    setRetryVisible(retry, true);
                     params.failCallback();
                     return;
                 }
-                showStatus(status, result.data.total + " entries", false);
+                showStatus(
+                    status,
+                    result.data.total === 0
+                        ? "No entries found."
+                        : result.data.total + " entries",
+                    false
+                );
+                setRetryVisible(retry, false);
                 // Infinite row model API of agGrid 32: successCallback(rows,
                 // lastRow).  The *server side* row model's success/fail
                 // callbacks do not exist here and throw at runtime.
                 params.successCallback(result.data.rows, result.data.lastRow);
             })
-            .catch(function (error) {
-                showStatus(status, String(error), true);
+            .catch(function () {
+                showStatus(status, "Could not load entries. Try again.", true);
+                setRetryVisible(retry, true);
                 params.failCallback();
             });
     }
@@ -194,7 +211,15 @@
             return;
         }
         var status = document.getElementById(STATUS_ID);
-        var gridApi = agGrid.createGrid(element, gridOptions(config, status));
+        var retry = document.getElementById("persistent-log-retry");
+        var gridApi = agGrid.createGrid(element, gridOptions(config, status, retry));
+
+        if (retry) {
+            retry.addEventListener("click", function () {
+                setRetryVisible(retry, false);
+                gridApi.purgeInfiniteCache();
+            });
+        }
 
         var quick = document.getElementById(QUICK_ID);
         if (quick) {

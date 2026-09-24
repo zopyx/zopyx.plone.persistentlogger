@@ -78,25 +78,29 @@
                   entries are eligible for deletion.
                 </p>
 
+                <div class="table-responsive">
                 <table class="table table-striped table-sm">
+                  <caption class="visually-hidden" i18n:translate="">Entries selected for deletion</caption>
                   <thead>
                     <tr>
-                      <th i18n:translate="">Date</th>
-                      <th i18n:translate="">Level</th>
-                      <th i18n:translate="">User</th>
-                      <th i18n:translate="">Comment</th>
+                      <th scope="col" i18n:translate="">Date</th>
+                      <th scope="col" i18n:translate="">Level</th>
+                      <th scope="col" i18n:translate="">User</th>
+                      <th scope="col" i18n:translate="">Comment</th>
                     </tr>
                   </thead>
                   <tbody>
                     <tr tal:repeat="entry view/preview_events">
                       <td class="field-date"
+                          data-label="Date"
                           tal:content="python: context.toLocalizedTime(entry['date'], True)" />
-                      <td tal:content="entry/level" />
-                      <td tal:content="entry/username" />
-                      <td tal:content="entry/comment" />
+                      <td data-label="Level" tal:content="entry/level" />
+                      <td data-label="User" tal:content="entry/username" />
+                      <td data-label="Comment" tal:content="entry/comment" />
                     </tr>
                   </tbody>
                 </table>
+                </div>
 
                 <form method="post" tal:attributes="action string:${context/absolute_url}/@@persistent-log-retention">
                   <input type="hidden" name="action" value="delete" />
@@ -106,7 +110,10 @@
 
                   <div class="mb-3">
                     <label class="form-label" for="retention-reason" i18n:translate="">Reason (at least 10 characters)</label>
-                    <textarea class="form-control" name="reason" id="retention-reason" rows="2" required="required"></textarea>
+                    <textarea class="form-control" name="reason" id="retention-reason" rows="2"
+                              minlength="10" required="required"
+                              aria-describedby="retention-reason-help"></textarea>
+                    <div id="retention-reason-help" class="form-text" i18n:translate="">Provide at least 10 characters explaining this deletion.</div>
                   </div>
 
                   <button type="submit" class="btn btn-danger" i18n:translate="">Delete these entries</button>

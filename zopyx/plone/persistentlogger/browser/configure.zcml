@@ -6,6 +6,11 @@
     
     <include package="Products.CMFCore" />
 
+    <permission
+        id="zopyx.plone.persistentlogger.ViewAuditLog"
+        title="View audit log"
+    />
+
     <browser:page
         for="*"
         name="logger-demo"
@@ -21,7 +26,7 @@
         class=".logger.Logging"
         template="logger.pt"
         layer="zopyx.plone.persistentlogger.interfaces.BrowserLayer"
-        permission="cmf.ModifyPortalContent"
+        permission="zopyx.plone.persistentlogger.ViewAuditLog"
     />
 
     <browser:page
@@ -30,7 +35,7 @@
         class=".logger.Logging"
         attribute="entries_json"
         layer="zopyx.plone.persistentlogger.interfaces.BrowserLayer"
-        permission="cmf.ModifyPortalContent"
+        permission="zopyx.plone.persistentlogger.ViewAuditLog"
     />
 
     <browser:page
@@ -39,7 +44,7 @@
         class=".logger.Logging"
         attribute="entries_data"
         layer="zopyx.plone.persistentlogger.interfaces.BrowserLayer"
-        permission="cmf.ModifyPortalContent"
+        permission="zopyx.plone.persistentlogger.ViewAuditLog"
     />
 
     <browser:page

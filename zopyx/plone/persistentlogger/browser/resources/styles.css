@@ -61,3 +61,33 @@
     vertical-align: top;
     text-align: left;
 }
+
+.persistent-log-grid-container {
+    width: 100%;
+    min-width: 0;
+    overflow-x: auto;
+}
+
+.persistent-log-grid-container .ag-root-wrapper {
+    min-width: 42rem;
+}
+
+.table-responsive {
+    overflow-x: auto;
+}
+
+@media (max-width: 767.98px) {
+    .persistent-log-grid-container .ag-root-wrapper {
+        min-width: 34rem;
+    }
+
+    .persistent-log-grid-container .ag-header-cell,
+    .persistent-log-grid-container .ag-cell {
+        padding-left: 0.4rem;
+        padding-right: 0.4rem;
+    }
+
+    .table-responsive table {
+        min-width: 34rem;
+    }
+}

@@ -8,6 +8,7 @@ import datetime
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from zopyx.plone.persistentlogger import file_logger
@@ -147,9 +148,17 @@ class BrowserLoggerTests(unittest.TestCase):
         ]
         adapter = MagicMock()
         adapter.entries = entries
-        with patch(
-            "zopyx.plone.persistentlogger.browser.logger.IPersistentLogger",
-            return_value=adapter,
+        repository = MagicMock()
+        repository.search.return_value = SimpleNamespace(rows=entries, total=2)
+        with (
+            patch(
+                "zopyx.plone.persistentlogger.browser.logger.IPersistentLogger",
+                return_value=adapter,
+            ),
+            patch(
+                "zopyx.plone.persistentlogger.browser.logger.get_repository",
+                return_value=repository,
+            ),
         ):
             result = self.view.entries()
             payload = self.view.entries_json()

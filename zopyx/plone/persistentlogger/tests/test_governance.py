@@ -248,9 +248,14 @@ class GovernanceTests(unittest.TestCase):
         self.assertIn('"source":"test"', row["details"])
 
     def test_browser_preview_respects_disabled_policy(self):
-        request = type("Request", (), {"form": {}, "method": "GET"})()
-        with self.assertRaises(ValueError):
-            BrowserRetention(self.context, request).preview()
+        request = type(
+            "Request",
+            (),
+            {"form": {}, "method": "POST", "response": MagicMock()},
+        )()
+        with patch("zopyx.plone.persistentlogger.browser.retention.CheckAuthenticator"):
+            with self.assertRaises(ValueError):
+                BrowserRetention(self.context, request).preview()
 
         response = MagicMock()
         get_request = type("Request", (), {"method": "GET", "response": response})()
@@ -288,11 +293,14 @@ class GovernanceTests(unittest.TestCase):
             (),
             {
                 "form": {"older_than_days": "30", "max_entries": "1"},
-                "method": "GET",
+                "method": "POST",
+                "response": MagicMock(),
             },
         )()
-        preview_view = BrowserRetention(self.context, preview_request)
-        preview_payload = json.loads(preview_view.preview())
+        with patch("zopyx.plone.persistentlogger.browser.retention.CheckAuthenticator"):
+            preview_payload = json.loads(
+                BrowserRetention(self.context, preview_request).preview()
+            )
         self.assertEqual(preview_payload["event_ids"], [str(old.event_id)])
         preview = self.repository.preview_delete(policy, self.now)
         delete_request = type(

@@ -16,6 +16,13 @@ Changelog
   preview, confirmation, and reason based only.
 - Hardened the loguru file logger against private-API changes and cached
   audit settings lookups per site.
+- Hardened retention previews to POST-only CSRF-protected requests with
+  structured input errors and bounded legacy/export endpoints.
+- Added a manager-granted ``View audit log`` permission and a GenericSetup
+  registry upgrade path.
+- Improved grid and retention form accessibility/responsive behavior and
+  removed unused DataTables resources.
+- Made ODS support optional through the ``odfpy`` extra.
 
 0.5.2 (2023-11-23)
 ------------------

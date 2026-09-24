@@ -25,6 +25,8 @@ from zopyx.plone.persistentlogger.storage import (
 
 #: Hard upper bound for one page handed to the grid.
 MAX_PAGE_SIZE = 500
+#: Compatibility endpoint limit; callers should use the paged data endpoint.
+MAX_LEGACY_ENTRIES = 10_000
 
 
 def _param(request, name, default=None):
@@ -156,12 +158,34 @@ class Logging(BrowserView):
         )
 
     def entries_json(self, date_fmt="%d.%m.%Y %H:%M:%S"):
-        result = list()
-        for d in self.entries():
-            d = d.copy()
-            d["date_str"] = d["date"].strftime(date_fmt)
-            result.append(d)
-        return json.dumps(result[::-1], default=json_serial)
+        """Return the bounded legacy payload and advertise its replacement."""
+        response = self.request.response
+        response.setHeader("Deprecation", "true")
+        response.setHeader(
+            "Warning", '299 - "Use @@persistent-log-data for paged results"'
+        )
+        result = get_repository(self.context).search(limit=MAX_LEGACY_ENTRIES + 1)
+        if result.total > MAX_LEGACY_ENTRIES:
+            response.setStatus(413)
+            response.setHeader("Content-Type", "application/json")
+            return json.dumps(
+                {
+                    "error": {
+                        "code": "legacy_endpoint_limit",
+                        "message": (
+                            "use @@persistent-log-data; the unpaged compatibility "
+                            "endpoint is limited to 10000 entries"
+                        ),
+                    }
+                }
+            )
+        entries = []
+        for entry in reversed(result.rows):
+            value = entry.copy()
+            value["date_str"] = value["date"].strftime(date_fmt)
+            entries.append(value)
+        response.setHeader("Content-Type", "application/json")
+        return json.dumps(entries, default=json_serial)
 
     def count(self):
         """Return the number of stored entries (without loading them)."""
