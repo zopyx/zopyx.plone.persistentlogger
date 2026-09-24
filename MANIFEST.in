@@ -1,3 +1,2 @@
-recursive-include zopyx docs
-recursive-include zopyx *.zcml *.pt *.xml *.txt *.css *.js *.png
+recursive-include zopyx *.zcml *.pt *.xml *.txt *.css *.js
 include setup.py *cfg
