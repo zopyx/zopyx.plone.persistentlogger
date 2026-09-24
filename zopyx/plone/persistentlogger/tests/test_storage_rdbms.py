@@ -128,11 +128,20 @@ class RdbmsSpecificTests(unittest.TestCase):
         self.repository.clear()
 
     def test_engine_is_cached_per_url(self):
-        self.assertIs(get_engine(self.url), get_engine(self.url))
+        engine = get_engine(self.url)
+        self.assertIs(engine, get_engine(self.url))
         dispose_engines()
         # Engines are recreated on demand after being disposed.
-        self.assertIsNotNone(get_engine(self.url))
-        self.assertIs(get_engine(self.url), get_engine(self.url))
+        recreated_engine = get_engine(self.url)
+        self.assertIsNot(engine, recreated_engine)
+        self.assertIsNotNone(recreated_engine)
+        self.assertIs(recreated_engine, get_engine(self.url))
+
+        # ``tearDown`` clears this repository after the test.  Rebind it to
+        # the replacement engine so cleanup does not reopen a connection on
+        # the already-disposed engine that was cached during ``setUp``.
+        self.repository.engine = recreated_engine
+        self.addCleanup(dispose_engines)
 
     def test_repository_requires_a_database_url(self):
         from ..storage.base import StorageConfigurationError
